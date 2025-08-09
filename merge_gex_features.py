@@ -116,10 +116,16 @@ def compute_gex_features(df_gex: pd.DataFrame, ul_price: float) -> dict:
 
 def main():
     load_dotenv()
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="labeled_trades.csv", help="Path to labeled_trades.csv")
-    ap.add_argument("--out", default="labeled_trades_with_gex.csv", help="Output CSV path")
-    args = ap.parse_args()
+    #ap = argparse.ArgumentParser()
+    #ap.add_argument("--csv", default="labeled_trades.csv", help="Path to labeled_trades.csv")
+    #ap.add_argument("--out", default="labeled_trades_with_gex.csv", help="Output CSV path")
+    #args = ap.parse_args()
+
+    out_dir = os.getenv("OUT_DIR", "output")
+    csv_path = f"{out_dir}/labeled_trades.csv"
+    #out_path = Path(args.out)
+    out_path = os.getenv("LABELED_TRADES_WITH_GEX")
+    out_path = f"{out_dir}/{out_path}"
 
     base_dir = os.getenv("GEX_BASE_DIR")
     target_time_str = os.getenv("GEX_TARGET_TIME", "11:00")
@@ -129,7 +135,7 @@ def main():
     target_t = parse_target_time(target_time_str)
     target_minutes = target_t.hour * 60 + target_t.minute
 
-    trades = pd.read_csv(args.csv)
+    trades = pd.read_csv(csv_path)
     need = ["baseSymbol","tradeTime","underlyingLastPrice"]
     for c in need:
         if c not in trades.columns:
@@ -171,7 +177,7 @@ def main():
 
     gex_df_all = pd.DataFrame(feats, index=trades.index)
     merged = pd.concat([trades, gex_df_all], axis=1)
-    merged.to_csv(args.out, index=False)
+    merged.to_csv(out_path, index=False)
 
     rep = {
         "rows": len(merged),
@@ -180,7 +186,7 @@ def main():
         "base_dir": base_dir,
         "target_time": target_time_str
     }
-    with open("merge_gex_report.json","w") as f:
+    with open(f"{out_dir}/merge_gex_report.json","w") as f:
         json.dump(rep, f, indent=2)
     print(json.dumps(rep, indent=2))
 
