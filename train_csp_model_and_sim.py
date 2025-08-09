@@ -46,6 +46,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import GradientBoostingClassifier
+import joblib
 
 # --- Minimal sim (fixed capital-release) ---
 def simulate_variant_fixed(df: pd.DataFrame,
@@ -267,6 +268,7 @@ def main():
     # Select top-k by proba on the WHOLE dataset (train+test) for sim, to mimic live deployment you'd refit on full data
     full_X, _ = build_features(df)
     model.fit(full_X, df["win"].values)
+    joblib.dump(model, "ml_model.pkl")
     full_proba = model.predict_proba(full_X)[:,1]
     full_thr_idx = int(len(full_proba)*(1-args.target_coverage))
     full_thr = np.sort(full_proba)[full_thr_idx] if len(full_proba)>0 else 1.0
