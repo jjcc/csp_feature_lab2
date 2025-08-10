@@ -100,7 +100,20 @@ def preload_closes_with_cache(raw_df, out_dir, batch_size=30):
     tt = pd.to_datetime(raw_df.get('tradeTime', pd.NaT), errors="coerce")
     ed = pd.to_datetime(raw_df.get('expirationDate', pd.NaT), errors="coerce")
     start_dt = pd.to_datetime(min([d for d in pd.concat([tt, ed.dropna()]) if pd.notna(d)]) - pd.Timedelta(days=5))
+    # check week day of start_dt
+    if start_dt.weekday() == 5:  # Saturday
+        start_dt += pd.Timedelta(days=2)
+    elif start_dt.weekday() == 6:  # Sunday
+        start_dt += pd.Timedelta(days=1)
     end_dt = pd.to_datetime(max([d for d in ed.dropna()]) + pd.Timedelta(days=1))
+    if end_dt > pd.Timestamp.now():
+        end_dt = pd.Timestamp.now()
+        end_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    # check week day of end_dt
+    if end_dt.weekday() == 5:  # Saturday
+        end_dt -= pd.Timedelta(days=1)
+    elif end_dt.weekday() == 6:  # Sunday
+        end_dt -= pd.Timedelta(days=2)
     # Load from cache or mark missing
     closes = {}
     missing = []
@@ -367,13 +380,13 @@ def main():
     raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=True)
     # Preload price series with caching
     # out_dir = os.path.dirname(os.path.abspath(__file__))
-    out_dir = getenv("OUTPUT_DIR", "./output")
-    closes = preload_closes_with_cache(raw, out_dir, batch_size=batch_size)
+    cache_dir = getenv("CACHE_DIR", "./output")
+    closes = preload_closes_with_cache(raw, cache_dir, batch_size=batch_size)
     labeled = build_dataset(raw, max_rows=0, preload_closes=closes)
     # Keep only rows that could be labeled (win not NaN)
     labeled = labeled[~labeled["win"].isna()].copy()
 
-    out_dir = os.path.dirname(os.path.abspath(__file__))
+    out_dir = getenv("OUTPUT_DIR", "./output")
     run_model(labeled, out_dir)
 
 if __name__ == "__main__":
