@@ -23,18 +23,18 @@
                    ▼
     labeled_trades_with_gex.csv
                    │
-     ┌──────────────────────┐
-     │ Two parallel models: │
-     └──────────────────────┘
+          ┌──────────────────────┐
+          │ Two parallel models: │
+          └──────────────────────┘
         │                           │
         ▼                           ▼
-┌────────────────────┐       ┌───────────────────────┐
-│ train_csp_model_   │       │ train_tail_with_gex.py│
-│ and_sim.py         │       │ - Predict fat-tail    │
-│ - Predict winners  │       │   losses              │
-│ - Portfolio sim    │       │ - High recall for bad │
-│ - Output ml_proba  │       │   trades              │
-└────────────────────┘       └───────────────────────┘
+┌────────────────────────┐   ┌───────────────────────┐
+│ train_csp_model_       │   │ train_tail_with_gex.py│
+│ and_sim.py             │   │ - Predict fat-tail    │
+│ - Predict winners      │   │   losses              │
+│ - Portfolio sim        │   │ - High recall for bad │
+│ - Output ml_proba      │   │   trades              │
+└────────────────────────┘   └───────────────────────┘
         │                           │
         ▼                           ▼
 scored_trades_full.csv     tail_model_gex.pkl
