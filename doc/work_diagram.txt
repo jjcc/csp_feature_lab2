@@ -1,0 +1,57 @@
+        Raw Trade Data (from broker/IBKR)  
+                   │
+                   ▼
+      ┌───────────────────────────────┐
+      │ analyze_csp_features.py       │
+      │ - Clean & label outcomes      │
+      │ - Add derived metrics         │
+      │ -(Optional) feature importance│
+      └───────────────────────────────┘
+                   │
+                   ▼
+       labeled_trades.csv
+                   │
+         + Merge GEX Features
+                   │
+                   ▼
+      ┌───────────────────────────────┐
+      │ merge_gex_features.py         │
+      │ - Match 11:03 GEX data        │
+      │ - Add columns: gex_sum, flip  │
+      └───────────────────────────────┘
+                   │
+                   ▼
+    labeled_trades_with_gex.csv
+                   │
+     ┌──────────────────────┐
+     │ Two parallel models: │
+     └──────────────────────┘
+        │                           │
+        ▼                           ▼
+┌────────────────────┐       ┌───────────────────────┐
+│ train_csp_model_   │       │ train_tail_with_gex.py│
+│ and_sim.py         │       │ - Predict fat-tail    │
+│ - Predict winners  │       │   losses              │
+│ - Portfolio sim    │       │ - High recall for bad │
+│ - Output ml_proba  │       │   trades              │
+└────────────────────┘       └───────────────────────┘
+        │                           │
+        ▼                           ▼
+scored_trades_full.csv     tail_model_gex.pkl
+                                    │
+                                    ▼
+                      score_tail_with_gex.py
+                                    │
+                                    ▼
+                labeled_trades_with_gex_tail.csv
+                                    │
+                                    ▼
+         ┌───────────────────────────────────────────┐
+         │ Hybrid Strategy Evaluation                │
+         │ - Apply tail-loss prefilter               │
+         │ - Run winner model on survivors           │
+         │ - Simulate portfolio                      │
+         └───────────────────────────────────────────┘
+                                    │
+                                    ▼
+                       Equity curves & metrics

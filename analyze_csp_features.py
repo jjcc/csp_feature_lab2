@@ -23,10 +23,11 @@ import glob
 import argparse
 import numpy as np
 import pandas as pd
+from sklearn.metrics import r2_score, root_mean_squared_error
 import yfinance as yf
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, mean_absolute_error, mean_squared_error
 
 from dotenv import load_dotenv;
 load_dotenv()
@@ -301,11 +302,15 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 
     # Entry credit model: mid minus a fraction of half-spread
     def entry_credit(r, take_from_mid_pct=0.35, min_abs=0.01):
-        bid = safe_float(r["bid"]); ask = safe_float(r["ask"])
-        if not np.isfinite(bid) or not np.isfinite(ask) or bid<=0 or ask<=0:
-            return np.nan
-        mid = 0.5*(bid+ask)
-        half_spread = max(0.0, (ask-bid)/2.0)
+        bidPrice = safe_float(r["bidPrice"])
+        #bid = safe_float(r["bid"]); ask = safe_float(r["ask"])
+        #if not np.isfinite(bid) or not np.isfinite(ask) or bid<=0 or ask<=0:
+        #    return np.nan
+        
+        #mid = 0.5*(bid+ask)
+        mid = bidPrice
+        #half_spread = max(0.0, (ask-bid)/2.0)
+        half_spread = 0.0
         fill = mid - max(min_abs, take_from_mid_pct*half_spread)
         return max(0.0, fill)*100.0
 
@@ -313,7 +318,8 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 
     # Exit (expiry intrinsic) for puts
     def exit_intrinsic(r):
-        strike = safe_float(r["strike"]); expiry_close = safe_float(r["expiry_close"])
+        strike = safe_float(r["strike"]) 
+        expiry_close = safe_float(r["expiry_close"])
         if not np.isfinite(strike) or not np.isfinite(expiry_close):
             return np.nan
         return max(0.0, strike - expiry_close)*100.0
@@ -363,6 +369,31 @@ def run_model(labeled: pd.DataFrame, out_dir: str):
 
     print("\nTop features:\n", importances.head(10))
 
+def run_regression_model(labeled, out_dir):
+    feats = ["moneyness","percentToBreakEvenBid","impliedVolatilityRank1y",
+             "delta","potentialReturn","potentialReturnAnnual",
+             "breakEvenProbability","openInterest","volume",
+             "underlyingLastPrice","strike"]
+    X = labeled[feats].apply(pd.to_numeric, errors="coerce")
+    y = labeled["return_pct"]
+
+    mask = (~X.isna().any(axis=1)) & (~y.isna())
+    X, y = X[mask], y[mask]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    reg = RandomForestRegressor(n_estimators=400, random_state=42)
+    reg.fit(X_train, y_train)
+    y_pred = reg.predict(X_test)
+
+    print("R²:", r2_score(y_test, y_pred))
+    print("MAE:", mean_absolute_error(y_test, y_pred))
+    #print("RMSE:", mean_squared_error(y_test, y_pred))
+    print("RMSE:", root_mean_squared_error(y_test, y_pred))
+
+    pd.Series(reg.feature_importances_, index=feats).sort_values(ascending=False)\
+        .to_csv(os.path.join(out_dir, "feature_importances_regression.csv"))
+
+
 def main():
     #ap = argparse.ArgumentParser()
     #ap.add_argument("--data_dir", type=str, required=True, help="Folder containing CSP CSVs")
@@ -387,7 +418,8 @@ def main():
     labeled = labeled[~labeled["win"].isna()].copy()
 
     out_dir = getenv("OUTPUT_DIR", "./output")
-    run_model(labeled, out_dir)
+    #run_model(labeled, out_dir)
+    run_regression_model(labeled, out_dir)
 
 if __name__ == "__main__":
     main()
