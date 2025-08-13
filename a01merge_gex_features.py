@@ -186,7 +186,7 @@ def main():
         "base_dir": base_dir,
         "target_time": target_time_str
     }
-    with open(f"{out_dir}/merge_gex_report.json","w") as f:
+    with open(f"{out_dir}/merge_gex_report2.json","w") as f:
         json.dump(rep, f, indent=2)
     print(json.dumps(rep, indent=2))
 
