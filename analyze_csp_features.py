@@ -28,6 +28,7 @@ import yfinance as yf
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, mean_absolute_error, mean_squared_error
+from service.preprocess import load_csp_files 
 
 from dotenv import load_dotenv;
 load_dotenv()
@@ -88,7 +89,7 @@ def download_closes_batched(symbols, start_dt, end_dt, batch_size=30, threads=Tr
             print(f"[WARN] batch download failed for {batch}: {e}")
     return out
 
-def preload_closes_with_cache(raw_df, out_dir, batch_size=30):
+def preload_closes_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None):
     """
     From the raw CSP rows, determine unique symbols and date window,
     load from cache if available, batch-download missing ones, and save to cache.
@@ -107,8 +108,10 @@ def preload_closes_with_cache(raw_df, out_dir, batch_size=30):
     elif start_dt.weekday() == 6:  # Sunday
         start_dt += pd.Timedelta(days=1)
     end_dt = pd.to_datetime(max([d for d in ed.dropna()]) + pd.Timedelta(days=1))
-    if end_dt > pd.Timestamp.now():
-        end_dt = pd.Timestamp.now()
+    if cut_off_date is  None:
+        cut_off_date = pd.Timestamp.now()
+    if end_dt > cut_off_date:
+        end_dt = cut_off_date
         end_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
     # check week day of end_dt
     if end_dt.weekday() == 5:  # Saturday
@@ -167,52 +170,6 @@ def get_expiry_close(symbol: str, expiry_ts: pd.Timestamp) -> float:
         return np.nan
 
 
-def parse_timestamp_from_filename(name: str):
-    """
-    Expecting coveredPut_YYYY-MM-DD_HH_MM.csv or similar.
-    Returns (date, time) as datetime.date, datetime.time or (None,None) if not parsed.
-    """
-    import re, datetime as dt
-    m = re.search(r'(\d{4}-\d{2}-\d{2})_(\d{2})_(\d{2})', name)
-    if not m:
-        return None, None
-    d = dt.datetime.strptime(m.group(1), "%Y-%m-%d").date()
-    t = dt.time(int(m.group(2)), int(m.group(3)))
-    return d, t
-
-def pick_daily_snapshot_files(data_dir: str, pattern: str, target_time_str: str = "11:00"):
-    """
-    Groups files by date and picks one file per date:
-    - choose the file with time >= target_time that is closest to it
-    - if none, fall back to the latest file before target_time
-    Returns a sorted list of absolute paths.
-    """
-    import glob, os, datetime as dt
-    target_h, target_m = map(int, target_time_str.split(":"))
-    target = dt.time(target_h, target_m)
-
-    #paths = sorted(glob.glob(os.path.join(data_dir, pattern)))
-    paths = sorted([str(Path(p)) for p in Path(data_dir).glob(pattern)])
-    by_date = {}
-    for p in paths:
-        name = os.path.basename(p)
-        d, t = parse_timestamp_from_filename(name)
-        if d is None or t is None:
-            continue
-        by_date.setdefault(d, []).append((t, p))
-
-    chosen = []
-    for d, lst in by_date.items():
-        lst.sort()  # sort by time
-        after = [x for x in lst if x[0] >= target]
-        if after:
-            # pick nearest after target
-            chosen.append(min(after, key=lambda x: (dt.datetime.combine(d, x[0]) - dt.datetime.combine(d, target)).total_seconds())[1])
-        else:
-            # pick latest before target
-            chosen.append(max(lst, key=lambda x: x[0])[1])
-    chosen = [str(Path(p)) for p in chosen]
-    return sorted(chosen)
 
 def load_csp_files_old(data_dir: str, pattern: str) -> pd.DataFrame:
     """
@@ -230,25 +187,6 @@ def load_csp_files_old(data_dir: str, pattern: str) -> pd.DataFrame:
     if not frames:
         raise SystemExit(f"No files found for pattern {pattern} in {data_dir}")
     return pd.concat(frames, ignore_index=True)  # (unused now)
-
-def load_csp_files(data_dir: str, pattern: str, target_time="11:00", enforce_daily_pick=True) -> pd.DataFrame:
-    if enforce_daily_pick:
-        paths = pick_daily_snapshot_files(data_dir, pattern, target_time)
-    else:
-        import glob, os
-        paths = sorted(glob.glob(os.path.join(data_dir, pattern)))
-    frames = []
-    for p in paths:
-        try:
-            df = pd.read_csv(p)
-            base_file = Path(p).name
-            df["__source_file"] = base_file
-            frames.append(df)
-        except Exception as e:
-            print(f"[WARN] Could not read {p}: {e}")
-    if not frames:
-        raise SystemExit(f"No files found for pattern {pattern} in {data_dir}")
-    return pd.concat(frames, ignore_index=True)
 
 
 
@@ -408,18 +346,20 @@ def main():
     target_time = getenv("TARGET_TIME", "11:00")
     batch_size = int(getenv("BATCH_SIZE", "30"))
 
+    cut_off_date = "2025-08-09"
+    cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else None
     raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=True)
     # Preload price series with caching
     # out_dir = os.path.dirname(os.path.abspath(__file__))
     cache_dir = getenv("CACHE_DIR", "./output")
-    closes = preload_closes_with_cache(raw, cache_dir, batch_size=batch_size)
+    closes = preload_closes_with_cache(raw, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
     labeled = build_dataset(raw, max_rows=0, preload_closes=closes)
     # Keep only rows that could be labeled (win not NaN)
     labeled = labeled[~labeled["win"].isna()].copy()
 
     out_dir = getenv("OUTPUT_DIR", "./output")
-    #run_model(labeled, out_dir)
-    run_regression_model(labeled, out_dir)
+    run_model(labeled, out_dir)
+    #run_regression_model(labeled, out_dir)
 
 if __name__ == "__main__":
     main()
