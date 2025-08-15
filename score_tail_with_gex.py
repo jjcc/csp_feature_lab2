@@ -1,89 +1,63 @@
-
 #!/usr/bin/env python3
 """
-Score trades with the tail-loss model and gate by a fixed threshold (.env-driven).
-
-- Loads MODEL_IN (joblib with model, medians, features)
-- Scores CSV_INPUT and writes SCORED_OUT with tail_proba and tail_flag
-- Applies THRESHOLD to produce tail_flag (1=rejected, 0=pass)
-- If THRESHOLD_FROM is set (best_f1, recall_95, etc.), it can override THRESHOLD
-  when paired with METRICS_IN (not required here).
-
-ENV
----
-CSV_INPUT=path/to/labeled_trades_with_gex.csv
-MODEL_IN=path/to/tail_model_gex_v1.pkl
-SCORED_OUT=./scored_with_tail.csv
-THRESHOLD=0.086907
-# Optional:
-# THRESHOLD_FROM=(best_f1|recall_95|recall_98)
-# METRICS_IN=path/to/metrics.json
+score_tail_with_gex_env.py — (refactored to use model_utils)
 """
-import os, json, joblib, numpy as np, pandas as pd
+import os, json, joblib, pandas as pd
 from pathlib import Path
-
-# Robust .env loading
-def _load_env():
-    try:
-        from dotenv import load_dotenv
-    except Exception:
-        return
-    loaded = load_dotenv()
-    if not loaded:
-        script_env = Path(__file__).resolve().parent / ".env"
-        if script_env.exists():
-            load_dotenv(dotenv_path=script_env)
-_load_env()
-
-CSV_INPUT = os.getenv("CSV_INPUT", "/mnt/data/labeled_trades_with_gex.csv")
-MODEL_IN = os.getenv("MODEL_IN", "/mnt/data/tail_model_gex_v1.pkl")
-SCORED_OUT = os.getenv("SCORED_OUT", "/mnt/data/scored_with_tail.csv")
-THRESHOLD = os.getenv("THRESHOLD")
-THRESHOLD_FROM = os.getenv("THRESHOLD_FROM", "").strip().lower()
-METRICS_IN = os.getenv("METRICS_IN", "")
-
-def _resolve_threshold():
-    if THRESHOLD_FROM and METRICS_IN and Path(METRICS_IN).exists():
-        with open(METRICS_IN) as f:
-            m = json.load(f)
-        if THRESHOLD_FROM == "best_f1":
-            return float(m.get("oof_best_f1_threshold", m.get("oof_best_threshold", 0.5)))
-        if THRESHOLD_FROM == "recall_95":
-            return float(m.get("thr_recall_95", 0.2))
-        if THRESHOLD_FROM == "recall_98":
-            return float(m.get("thr_recall_98", 0.15))
-    if THRESHOLD is None:
-        raise SystemExit("THRESHOLD not set. Provide THRESHOLD or use THRESHOLD_FROM with METRICS_IN.")
-    return float(THRESHOLD)
+from dotenv import load_dotenv
+from service.utils import (
+    ensure_dir,
+    prep_tail_training_derived,
+    fill_features_with_training_medians,
+    load_env_default,
+)
 
 def main():
-    art = joblib.load(MODEL_IN)
-    model = art["model"]
-    medians = art["medians"]
-    feats = art["features"]
+    load_env_default()
 
-    df = pd.read_csv(CSV_INPUT)
-    # Ensure required columns exist and impute like training
-    for c in feats:
-        if c not in df.columns:
-            df[c] = np.nan
-        if c == "gex_missing":
-            df[c] = df[c].fillna(1)
-        else:
-            df[c] = df[c].fillna(medians.get(c, 0.0))
+    CSV_IN  = os.getenv("TAIL_SCORE_INPUT", "./new_trades_with_gex.csv")
+    MODEL_IN= os.getenv("TAIL_MODEL_IN", "./tail_model_gex_v1.pkl")
+    CSV_OUT = os.getenv("TAIL_SCORE_OUT", "./scores_tail.csv")
+    PROBA_COL = os.getenv("TAIL_KEEP_PROBA_COL", "tail_proba")
+    PRED_COL  = os.getenv("TAIL_PRED_COL", "is_tail_pred")
+    THRESHOLD = os.getenv("TAIL_THRESHOLD", "")
 
-    X = df[feats].astype(float).values
-    proba = model.predict_proba(X)[:, 1]
+    pack = joblib.load(MODEL_IN)
+    clf = pack["model"]
+    feats = pack["features"]
+    med  = pack["medians"]
+    default_thr = float(pack.get("oof_best_threshold", 0.5))
 
-    thr = _resolve_threshold()
+    thr = default_thr if (THRESHOLD is None or THRESHOLD.strip()=="") else float(THRESHOLD)
 
+    # 1) Load and derive columns EXACTLY as in training
+    raw = pd.read_csv(CSV_IN)
+    df = prep_tail_training_derived(raw)
+
+    # 2) Fill features using TRAINING medians (and gex_missing rule)
+    X = fill_features_with_training_medians(df, feats, med)
+
+    proba = clf.predict_proba(X)[:,1]
     out = df.copy()
-    out["tail_proba"] = proba
-    out["tail_flag"] = (out["tail_proba"] >= thr).astype(int)  # 1 = reject
+    out[PROBA_COL] = proba
 
-    Path(SCORED_OUT).parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(SCORED_OUT, index=False)
-    print(f"[OK] wrote {SCORED_OUT} with threshold={thr}")
+    if thr is not None:
+        out[PRED_COL] = (out[PROBA_COL] >= thr).astype(int)
+
+    ensure_dir(CSV_OUT)
+    out.to_csv(CSV_OUT, index=False)
+
+    summary = {
+        "rows": int(len(out)),
+        "threshold": float(thr),
+        "tails_predicted": int(out[PRED_COL].sum()) if PRED_COL in out.columns else None,
+        "kept_fraction_if_filter": float(1.0 - out[PRED_COL].mean()) if PRED_COL in out.columns else None
+    }
+    with open(Path(CSV_OUT).with_suffix(".json"), "w") as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"[OK] Scored {len(out)} rows. Saved → {CSV_OUT}")
+    print(f"Threshold={thr:.6f}; predicted tails={summary['tails_predicted']}")
 
 if __name__ == "__main__":
     main()
