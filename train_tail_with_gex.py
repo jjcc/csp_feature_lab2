@@ -76,6 +76,7 @@ BASE_FEATS = [
     "breakEvenProbability","moneyness","percentToBreakEvenBid","delta",
     "impliedVolatilityRank1y","potentialReturnAnnual","potentialReturn",
     "underlyingLastPrice","strike","openInterest","volume",
+    "daysToExpiration", 
 ]
 GEX_FEATS = [
     "gex_total","gex_total_abs","gex_pos","gex_neg",
@@ -99,6 +100,8 @@ def _prep_df(df: pd.DataFrame) -> pd.DataFrame:
         expiry_close = pd.to_numeric(df["expiry_close"], errors="coerce")
         df["exit_intrinsic"] = np.maximum(strike - expiry_close, 0.0) * 100.0
         df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
+        capital = pd.to_numeric(df["strike"], errors="coerce") * 100.0
+        df["return_pct"] = 100.0 * df["total_pnl"] / capital
     return df
 
 def _fill_features(df: pd.DataFrame, feat_list):
@@ -126,8 +129,8 @@ def main():
     X = Xdf[ALL_FEATS].astype(float).values
 
     # 3) Label tails (worst TAIL_PCT by dollar pnl)
-    tail_cut = df["total_pnl"].quantile(TAIL_PCT)
-    y = (df["total_pnl"] <= tail_cut).astype(int).values
+    tail_cut = df["return_pct"].quantile(TAIL_PCT)
+    y = (df["return_pct"] <= tail_cut).astype(int).values
 
     # Sanity check
     if y.sum() < max(5, FOLDS):
@@ -185,7 +188,7 @@ def main():
         "medians": medians,
         "features": ALL_FEATS,
         "tail_pct": float(TAIL_PCT),
-        "tail_cut": float(tail_cut),
+        "tail_cut_return_pct": float(tail_cut), 
         "cv": CV_TYPE,
         "folds": int(FOLDS),
         "oof_auc": float(auc),
