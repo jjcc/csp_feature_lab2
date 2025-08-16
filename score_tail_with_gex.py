@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from service.utils import (
     ensure_dir,
-    prep_tail_training_derived,
+    prep_tail_training_df,
     fill_features_with_training_medians,
     load_env_default,
 )
@@ -32,10 +32,10 @@ def main():
 
     # 1) Load and derive columns EXACTLY as in training
     raw = pd.read_csv(CSV_IN)
-    df = prep_tail_training_derived(raw)
+    df = prep_tail_training_df(raw)
 
     # 2) Fill features using TRAINING medians (and gex_missing rule)
-    X = fill_features_with_training_medians(df, feats, med)
+    X, medians = fill_features_with_training_medians(df, feats)
 
     proba = clf.predict_proba(X)[:,1]
     out = df.copy()

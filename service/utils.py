@@ -29,6 +29,19 @@ from dotenv import load_dotenv
 from sklearn.metrics import precision_recall_curve, precision_score, recall_score, f1_score
 
 
+
+BASE_FEATS = [
+    "breakEvenProbability","moneyness","percentToBreakEvenBid","delta",
+    "impliedVolatilityRank1y","potentialReturnAnnual","potentialReturn",
+    "underlyingLastPrice","strike","openInterest","volume",
+    "daysToExpiration", 
+]
+GEX_FEATS = [
+    "gex_total","gex_total_abs","gex_pos","gex_neg",
+    "gex_center_abs_strike","gex_flip_strike","gex_gamma_at_ul",
+    "gex_distance_to_flip","gex_sign_at_ul","gex_missing",
+]
+ALL_FEATS = BASE_FEATS + GEX_FEATS
 # ---------- FS / ENV helpers ----------
 
 # ---- Existing helpers kept minimal to avoid conflicts ----
@@ -75,24 +88,27 @@ def prep_tail_training_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return X
 
-def fill_features_with_training_medians(df: pd.DataFrame, feat_list: List[str], medians: Dict[str, float]) -> pd.DataFrame:
+def fill_features_with_training_medians(df: pd.DataFrame, feat_list: List[str]) -> pd.DataFrame:
     """
     Reproduce train_tail_with_gex._fill_features for scoring:
     - Ensure all features exist
     - For 'gex_missing': fillna(1)
     - For all others: fillna(training_median)
     """
+    medians_x = {}
     X = df.copy()
     for c in feat_list:
         if c not in X.columns:
             X[c] = np.nan
         if c == "gex_missing":
             X[c] = X[c].fillna(1)
+            medians_x[c] = 0.0
         else:
-            med = float(medians.get(c, 0.0))
-            X[c] = pd.to_numeric(X[c], errors="coerce").fillna(med)
+            medx = X[c].median(skipna=True)
+            medians_x[c] = float(medx) if pd.notna(medx) else 0.0
+            X[c] = X[c].fillna(medians_x[c])
 
-    return X[feat_list].astype(float)
+    return X[feat_list].astype(float), medians_x
 
 
 def prep_winner_like_training(
