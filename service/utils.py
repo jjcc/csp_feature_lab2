@@ -46,7 +46,7 @@ def load_env_default() -> None:
 
 
 # ---------- Data preparation ----------
-def prep_tail_training_derived(df: pd.DataFrame) -> pd.DataFrame:
+def prep_tail_training_df(df: pd.DataFrame) -> pd.DataFrame:
     """Reproduce train_tail_with_gex._prep_df exactly."""
     X = df.copy()
 
