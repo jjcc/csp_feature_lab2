@@ -321,11 +321,12 @@ def main():
     # save data with lable of test or not
    # === NEW: Save per-row probabilities with split labels ===
     try:
+        label_series = y.astype(int) 
         y_proba_train = clf.predict_proba(X_train)[:, 1]
         df_out = pd.DataFrame({
             "row_idx": df.index,
             "proba": np.nan,
-            "label": df["win"].astype(int),
+            "label": label_series,
         })
         df_out.set_index("row_idx", inplace=True)  # ← critical
     
