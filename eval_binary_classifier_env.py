@@ -326,7 +326,7 @@ def main():
     if recall_targets:
         print(f"- recall_targets_table.csv: {unified_path}")
     print(f"- thresholds_table.csv: {thresholds_path}")
-    print(f("- precision_recall_coverage.csv: {prcov_path}"))
+    print(f"- precision_recall_coverage.csv: {prcov_path}")
     print(f"- confusion_at_thresholds.csv: {conf_path}")
     print(f"- metrics.json: {metrics_path}")
 
