@@ -6,6 +6,14 @@ import os, json, joblib, pandas as pd, numpy as np
 from pathlib import Path
 from service.utils import load_env_default, ensure_dir, prep_winner_like_training, pick_threshold_auto
 
+
+
+def pick_threshold_from_coverage(proba, coverage):
+    if len(proba) == 0: return 1.0
+    k = max(1, int(round(len(proba) * coverage)))
+    thr = np.partition(proba, len(proba)-k)[len(proba)-k]
+    return float(thr)
+
 def main():
     load_env_default()
 
@@ -74,7 +82,24 @@ def main():
     out[PRED_COL] = (out[PROBA_COL] >= chosen_thr).astype(int)
 
     ensure_dir(CSV_OUT)
-    out.to_csv(CSV_OUT, index=False)
+    out.to_csv(CSV_OUT, index=False) 
+    OUT_SCORED = os.getenv("OUT_SCORED", (CSV_OUT or "data.csv").replace(".csv", "_scored.csv"))
+    WRITE_SWEEP = os.getenv("WRITE_SWEEP", "1").strip().lower() in {"1","true","yes","y","on"}
+
+    if WRITE_SWEEP:
+        coverages = [0.10,0.20,0.30,0.40,0.50,0.60,0.70]
+        rows = []
+        y = df["win"].values if "win" in df.columns else None
+        for cov in coverages:
+            thr = pick_threshold_from_coverage(proba, cov)
+            mask = proba >= thr
+            row = {"coverage": cov, "threshold": thr, "n": int(mask.sum())}
+            if y is not None:
+                row["precision_est"] = float(y[mask].mean()) if mask.any() else np.nan
+                row["recall_est"] = float((y[mask]==1).sum()/max(1,(y==1).sum())) if (y==1).any() else np.nan
+            rows.append(row)
+        pd.DataFrame(rows).to_csv(OUT_SCORED.replace("_scored.csv", "_threshold_sweep.csv"), index=False)
+
 
     summary = {
         "rows_scored": int(len(out)),
