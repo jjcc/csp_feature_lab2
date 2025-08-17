@@ -49,6 +49,15 @@ Env (extends previous):
     - auto: for tail_* -> negative (1-coverage), else -> positive (coverage)
     - positive: keep_rate := coverage
     - negative: keep_rate := 1 - coverage
+
+Adds optional split-aware evaluation:
+- If EVAL_SPLIT_COL is set and present in the CSV, this script will run the same
+  evaluation twice: once for overall, and once per value of the split column,
+  writing results under:
+    <EVAL_OUTPUT_DIR>/split_<SPLITCOL>=<value>/
+
+Everything else (labels, PR export, recall-target table, confusion matrices,
+metrics.json, PR plot) is unchanged from your stable version.
 """
 
 import os, json
@@ -188,40 +197,13 @@ def build_recall_targets_table(pr_curve: pd.DataFrame, y_true: np.ndarray, y_sco
         })
     return pd.DataFrame(out)
 
-def main():
-    load_dotenv()
-
-    # IO
-    CSV_IN = os.getenv("EVAL_INPUT", "./scores.csv")
-    OUTDIR = os.getenv("EVAL_OUTPUT_DIR", "./eval_out")
+def _evaluate_block(df: pd.DataFrame, OUTDIR: str, PROBA_COL: str,
+                    MODE: str, TAIL_K: float, LABEL_COL: str,
+                    RETURN_COL: str, PNL_COL: str,
+                    FIXED_THR: List[float], TGT_PREC: List[float], TGT_RECALL: List[float],
+                    KEEP_DEF: str):
+    """This is your original evaluation body, extracted so we can call it for overall + each split."""
     ensure_dir(OUTDIR)
-
-    # Proba + thresholds
-    PROBA_COL = os.getenv("EVAL_PROBA_COL", "prob")
-    FIXED_THR = _parse_list(os.getenv("EVAL_FIXED_THRESHOLDS", ""), cast=float)
-    TGT_PREC  = _parse_list(os.getenv("EVAL_TARGET_PRECISION", ""), cast=float)
-    TGT_RECALL= _parse_list(os.getenv("EVAL_TARGET_RECALL", ""), cast=float)
-
-    # Labels
-    MODE      = os.getenv("EVAL_LABEL_MODE", "winner")
-    TAIL_K    = float(os.getenv("EVAL_TAIL_K", "0.05"))
-    LABEL_COL = os.getenv("EVAL_LABEL_COL", "")
-    RETURN_COL= os.getenv("EVAL_RETURN_COL", "return_pct")
-    PNL_COL   = os.getenv("EVAL_PNL_COL", "total_pnl")
-
-    # Keep rate convention
-    KEEP_DEF  = os.getenv("EVAL_KEEP_RATE_DEF", "auto")
-
-    # Optional filtering/grouping
-    FILTER_Q  = os.getenv("EVAL_FILTER_QUERY", "").strip()
-    GROUP_COLS= _parse_list(os.getenv("EVAL_GROUP_COLS", ""), cast=str)
-
-    # Load
-    df = pd.read_csv(CSV_IN)
-
-    # Filter if needed
-    if FILTER_Q:
-        df = df.query(FILTER_Q)
 
     if PROBA_COL not in df.columns:
         raise SystemExit(f"Probability column '{PROBA_COL}' not in CSV.")
@@ -294,16 +276,6 @@ def main():
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    # Optional: group summaries
-    if GROUP_COLS:
-        grp_rows = []
-        for key, g in df.groupby(GROUP_COLS):
-            y_g, _, _ = build_labels(g, MODE, TAIL_K, RETURN_COL, PNL_COL, LABEL_COL)
-            s_g = pd.to_numeric(g[PROBA_COL], errors="coerce").fillna(0.0).values
-            roc_g = roc_auc_score(y_g, s_g)
-            pr_g  = average_precision_score(y_g, s_g)
-            grp_rows.append({"group": key if isinstance(key, tuple) else (key,), "rows": int(len(g)), "roc_auc": float(roc_g), "pr_auc": float(pr_g), "base_positive_rate": float((np.array(y_g)==1).mean())})
-        pd.DataFrame(grp_rows).to_csv(os.path.join(OUTDIR, "group_metrics.csv"), index=False)
 
     # Plot PR curve for quick glance
     try:
@@ -329,6 +301,78 @@ def main():
     print(f"- precision_recall_coverage.csv: {prcov_path}")
     print(f"- confusion_at_thresholds.csv: {conf_path}")
     print(f"- metrics.json: {metrics_path}")
+
+def main():
+    load_dotenv()
+
+    # IO
+    CSV_IN = os.getenv("EVAL_INPUT", "./scores.csv")
+    OUTDIR = os.getenv("EVAL_OUTPUT_DIR", "./eval_out")
+    ensure_dir(OUTDIR)
+
+    # Proba + thresholds
+    PROBA_COL = os.getenv("EVAL_PROBA_COL", "prob")
+    FIXED_THR = _parse_list(os.getenv("EVAL_FIXED_THRESHOLDS", ""), cast=float)
+    TGT_PREC  = _parse_list(os.getenv("EVAL_TARGET_PRECISION", ""), cast=float)
+    TGT_RECALL= _parse_list(os.getenv("EVAL_TARGET_RECALL", ""), cast=float)
+
+    # Labels
+    MODE      = os.getenv("EVAL_LABEL_MODE", "winner")
+    TAIL_K    = float(os.getenv("EVAL_TAIL_K", "0.05"))
+    LABEL_COL = os.getenv("EVAL_LABEL_COL", "")
+    RETURN_COL= os.getenv("EVAL_RETURN_COL", "return_pct")
+    PNL_COL   = os.getenv("EVAL_PNL_COL", "total_pnl")
+
+    # Keep rate convention
+    KEEP_DEF  = os.getenv("EVAL_KEEP_RATE_DEF", "auto")
+
+    # Optional filtering/grouping
+    FILTER_Q  = os.getenv("EVAL_FILTER_QUERY", "").strip()
+    GROUP_COLS= _parse_list(os.getenv("EVAL_GROUP_COLS", ""), cast=str)
+
+    # NEW: optional split column
+    SPLIT_COL = os.getenv("EVAL_SPLIT_COL", "is_train").strip()
+
+    # Load
+    df = pd.read_csv(CSV_IN)
+
+    # Filter if needed
+    if FILTER_Q:
+        df = df.query(FILTER_Q)
+
+    # ---- Overall (existing behavior) ----
+    _evaluate_block(
+        df=df, OUTDIR=OUTDIR, PROBA_COL=PROBA_COL,
+        MODE=MODE, TAIL_K=TAIL_K, LABEL_COL=LABEL_COL,
+        RETURN_COL=RETURN_COL, PNL_COL=PNL_COL,
+        FIXED_THR=FIXED_THR, TGT_PREC=TGT_PREC, TGT_RECALL=TGT_RECALL,
+        KEEP_DEF=KEEP_DEF
+    )
+
+    # ---- Per-split (non-breaking; runs only if SPLIT_COL present) ----
+    if SPLIT_COL and SPLIT_COL in df.columns:
+        for val, g in df.groupby(SPLIT_COL):
+            subdir = os.path.join(OUTDIR, f"split_{SPLIT_COL}={val}")
+            _evaluate_block(
+                df=g, OUTDIR=subdir, PROBA_COL=PROBA_COL,
+                MODE=MODE, TAIL_K=TAIL_K, LABEL_COL=LABEL_COL,
+                RETURN_COL=RETURN_COL, PNL_COL=PNL_COL,
+                FIXED_THR=FIXED_THR, TGT_PREC=TGT_PREC, TGT_RECALL=TGT_RECALL,
+                KEEP_DEF=KEEP_DEF
+            )
+
+    # ---- Optional: group summaries (unchanged) ----
+    if GROUP_COLS:
+        grp_rows = []
+        for key, g in df.groupby(GROUP_COLS):
+            y_g, _, _ = build_labels(g, MODE, TAIL_K, RETURN_COL, PNL_COL, LABEL_COL)
+            s_g = pd.to_numeric(g[PROBA_COL], errors="coerce").fillna(0.0).values
+            roc_g = roc_auc_score(y_g, s_g)
+            pr_g  = average_precision_score(y_g, s_g)
+            grp_rows.append({"group": key if isinstance(key, tuple) else (key,),
+                             "rows": int(len(g)), "roc_auc": float(roc_g),
+                             "pr_auc": float(pr_g), "base_positive_rate": float((np.array(y_g)==1).mean())})
+        pd.DataFrame(grp_rows).to_csv(os.path.join(OUTDIR, "group_metrics.csv"), index=False)
 
 if __name__ == "__main__":
     main()
