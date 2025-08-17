@@ -76,20 +76,32 @@ def main():
     FEATURES = os.getenv("FEATURES", "")
     TEST_SIZE = float(os.getenv("TEST_SIZE", "0.30"))
     REGRESSOR_N_EST = int(os.getenv("REGRESSOR_N_ESTIMATORS", "600"))
+    REGRESSOR_SPLIT_FILE = os.getenv("REGRESSOR_SPLIT_FILE")
 
     df = load_dataset(CSV)
+    if REGRESSOR_SPLIT_FILE and os.path.exists(REGRESSOR_SPLIT_FILE):
+        df_split = pd.read_csv(REGRESSOR_SPLIT_FILE)
+        df = df.merge(df_split, on=["symbol", "tradeTime"])
+        if "return_pct_x" in df.columns:
+            df["return_pct"] = df["return_pct_x"]
+            df.drop(columns=["return_pct_x", "return_pct_y"], inplace=True)
+            # filter
+            df = df[df["label"] == 1]
+
+
+
     feats = get_features(df, FEATURES)
 
     reg, reg_metrics, reg_importances = \
         train_return_regressor(df, feats, TEST_SIZE, REGRESSOR_N_EST)
 
     # Save metrics
-    with open(os.path.join(OUTPUT_DIR, "ml_regressor_metrics.json"), "w") as f:
+    with open(os.path.join(OUTPUT_DIR, "ml_regressor_metrics_winner.json"), "w") as f:
         json.dump({"regression_metrics": reg_metrics, "features": feats}, f, indent=2)
 
     # Save importances
     reg_importances.to_csv(
-        os.path.join(OUTPUT_DIR, "feature_importances_regressor.csv"),
+        os.path.join(OUTPUT_DIR, "feature_importances_regressor_winner.csv"),
         header=["importance"]
     )
 
