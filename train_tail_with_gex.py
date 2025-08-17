@@ -37,6 +37,7 @@ SEED                Random seed for reproducibility
 """
 import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
+from service.utils import prep_tail_training_df, ALL_FEATS
 
 # Load .env (robustly try CWD and script dir)
 def _load_env():
@@ -72,18 +73,7 @@ CV_TYPE = os.getenv("CV_TYPE", "stratified")
 FOLDS = int(os.getenv("FOLDS", "5"))
 SEED = int(os.getenv("SEED", "42"))
 
-BASE_FEATS = [
-    "breakEvenProbability","moneyness","percentToBreakEvenBid","delta",
-    "impliedVolatilityRank1y","potentialReturnAnnual","potentialReturn",
-    "underlyingLastPrice","strike","openInterest","volume",
-    "daysToExpiration", 
-]
-GEX_FEATS = [
-    "gex_total","gex_total_abs","gex_pos","gex_neg",
-    "gex_center_abs_strike","gex_flip_strike","gex_gamma_at_ul",
-    "gex_distance_to_flip","gex_sign_at_ul","gex_missing",
-]
-ALL_FEATS = BASE_FEATS + GEX_FEATS
+
 
 def _prep_df(df: pd.DataFrame) -> pd.DataFrame:
     # Parse times
@@ -91,7 +81,8 @@ def _prep_df(df: pd.DataFrame) -> pd.DataFrame:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce")
     # Derive total_pnl if missing (bid/bidPrice & expiry intrinsic)
-    if "total_pnl" not in df.columns:
+    #if "total_pnl" not in df.columns:
+    if True: # recalculate total_pnl anyway
         if "bid" not in df.columns and "bidPrice" in df.columns:
             df["bid"] = df["bidPrice"]
         bid_eff = df["bid"] if "bid" in df.columns else df["bidPrice"]
@@ -117,16 +108,17 @@ def _fill_features(df: pd.DataFrame, feat_list):
             med = Xdf[c].median(skipna=True)
             medians[c] = float(med) if pd.notna(med) else 0.0
             Xdf[c] = Xdf[c].fillna(medians[c])
-    return Xdf, medians
+    return Xdf[ALL_FEATS].astype(float), medians
 
 def main():
     # 1) Load & prep
     df = pd.read_csv(CSV_INPUT)
-    df = _prep_df(df).dropna(subset=["total_pnl"]).sort_values("tradeTime").reset_index(drop=True)
+    #df = _prep_df(df).dropna(subset=["total_pnl"]).sort_values("tradeTime").reset_index(drop=True)
+    df = prep_tail_training_df(df).dropna(subset=["total_pnl"]).sort_values("tradeTime").reset_index(drop=True)
 
     # 2) Features
     Xdf, medians = _fill_features(df, ALL_FEATS)
-    X = Xdf[ALL_FEATS].astype(float).values
+    X = Xdf.values
 
     # 3) Label tails (worst TAIL_PCT by dollar pnl)
     tail_cut = df["return_pct"].quantile(TAIL_PCT)

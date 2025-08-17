@@ -34,6 +34,21 @@ def main():
 
     df = pd.read_csv(CSV_IN)
 
+    # Filter
+    split_file = os.getenv("WINNER_SPLIT_FILE", "").strip()
+    if split_file:
+        df_split = pd.read_csv(split_file)
+        df = df.merge(df_split, on=["symbol", "tradeTime"], how="left") 
+        if "return_pct_x" in df.columns:
+            df["return_pct"] = df["return_pct_x"]
+            df = df.drop(columns=["return_pct_x", "return_pct_y"])
+        if "daysToExpiration_x" in df.columns:
+            df["daysToExpiration"] = df["daysToExpiration_x"]
+            df = df.drop(columns=["daysToExpiration_x", "daysToExpiration_y"])
+        # filter "is_train" == 0
+        df = df[df["is_train"] == 0]
+
+
     # Match training-time preprocessing
     X, mask = prep_winner_like_training(df, feats, medians=medians, impute_missing=impute_missing)
 
