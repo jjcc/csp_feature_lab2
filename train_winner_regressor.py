@@ -47,22 +47,22 @@ def train_return_regressor(df: pd.DataFrame, feats, test_size, n_estimators):
     mask = (~X.isna().any(axis=1)) & (~y.isna())
     X, y = X[mask], y[mask]
 
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_size, random_state=42)
+    X_train, X_test, y_train, y_test, idx_train, idx_test = train_test_split(X, y, df[mask].index, test_size=test_size, random_state=42)
 
     reg = RandomForestRegressor(
         n_estimators=int(n_estimators), random_state=42, n_jobs=-1
     )
-    reg.fit(X_tr, y_tr)
-    y_pred = reg.predict(X_te)
+    reg.fit(X_train, y_train)
+    y_pred = reg.predict(X_test)
 
     metrics = {
-        "R2": float(r2_score(y_te, y_pred)),
-        "MAE": float(mean_absolute_error(y_te, y_pred)),
-        "RMSE": float(mean_squared_error(y_te, y_pred)),
+        "R2": float(r2_score(y_test, y_pred)),
+        "MAE": float(mean_absolute_error(y_test, y_pred)),
+        "RMSE": float(mean_squared_error(y_test, y_pred)),
     }
     importances = pd.Series(reg.feature_importances_, index=X.columns).sort_values(ascending=False)
 
-    return reg, metrics, importances
+    return reg, metrics, importances, (idx_train, idx_test)
 
 def main():
     env_file = os.environ.get("ENV_FILE", ".env_regressor")
@@ -82,18 +82,24 @@ def main():
     if REGRESSOR_SPLIT_FILE and os.path.exists(REGRESSOR_SPLIT_FILE):
         df_split = pd.read_csv(REGRESSOR_SPLIT_FILE)
         df = df.merge(df_split, on=["symbol", "tradeTime"])
-        if "return_pct_x" in df.columns:
-            df["return_pct"] = df["return_pct_x"]
-            df.drop(columns=["return_pct_x", "return_pct_y"], inplace=True)
-            # filter
-            df = df[df["label"] == 1]
+        df_cols = df.columns
+        extra_cols = [col for col in df_cols if col.endswith("_x")]
+        if extra_cols:
+            for c in extra_cols:
+                df[c.replace("_x", "")] = df[c]
+                df.drop(columns=[c], inplace=True)
+                y_col = c.replace("_x", "_y")
+                df.drop(columns=[y_col], inplace=True)
+        df = df[df["label"] == 1] # winner trades only
 
 
 
     feats = get_features(df, FEATURES)
 
-    reg, reg_metrics, reg_importances = \
+    reg, reg_metrics, reg_importances, (idx_train, idx_test) = \
         train_return_regressor(df, feats, TEST_SIZE, REGRESSOR_N_EST)
+    df.loc[idx_train, "rg_is_train"] = 1
+    df.loc[idx_test, "rg_is_train"] = 0
 
     # Save metrics
     with open(os.path.join(OUTPUT_DIR, "ml_regressor_metrics_winner.json"), "w") as f:
