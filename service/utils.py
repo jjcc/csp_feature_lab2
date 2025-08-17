@@ -195,3 +195,13 @@ def pick_threshold_auto(
         return chosen["threshold"], row
 
     return None, None
+
+def get_features_rg(df: pd.DataFrame, feature_list: str):
+    if not feature_list or feature_list.strip() == "":
+        default = ALL_FEATS
+        feats = [c for c in default if c in df.columns]
+    else:
+        feats = [c.strip() for c in feature_list.split(",") if c.strip() in df.columns]
+        if not feats:
+            raise ValueError("No valid features from FEATURES env var found in CSV.")
+    return feats
