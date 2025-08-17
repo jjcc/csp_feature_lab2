@@ -18,11 +18,8 @@ from dotenv import load_dotenv; load_dotenv()
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.ensemble import RandomForestRegressor
-from service.utils import ALL_FEATS
+from service.utils import ALL_FEATS, get_features_rg, ensure_dir
 
-def ensure_dir(p):
-    os.makedirs(p, exist_ok=True)
-    return p
 
 def load_dataset(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
@@ -30,15 +27,7 @@ def load_dataset(csv_path: str) -> pd.DataFrame:
         raise ValueError("CSV must contain 'return_pct' column.")
     return df
 
-def get_features(df: pd.DataFrame, feature_list: str):
-    if not feature_list or feature_list.strip() == "":
-        default = ALL_FEATS
-        feats = [c for c in default if c in df.columns]
-    else:
-        feats = [c.strip() for c in feature_list.split(",") if c.strip() in df.columns]
-        if not feats:
-            raise ValueError("No valid features from FEATURES env var found in CSV.")
-    return feats
+
 
 def train_return_regressor(df: pd.DataFrame, feats, test_size, n_estimators):
     X = df[feats].apply(pd.to_numeric, errors="coerce")
@@ -94,7 +83,7 @@ def main():
 
 
 
-    feats = get_features(df, FEATURES)
+    feats = get_features_rg(df, FEATURES)
 
     reg, reg_metrics, reg_importances, (idx_train, idx_test) = \
         train_return_regressor(df, feats, TEST_SIZE, REGRESSOR_N_EST)
@@ -123,7 +112,7 @@ def main():
     valid_mask = ~X_all.isna().any(axis=1)
     preds_df = df.copy()
     preds_df.loc[valid_mask, "ml_pred_return"] = reg.predict(X_all[valid_mask])
-    preds_df.to_csv(os.path.join(OUTPUT_DIR, "scored_trades_regressor.csv"), index=False)
+    preds_df.to_csv(os.path.join(OUTPUT_DIR, "ml_trades_regressor.csv"), index=False)
 
     print("Saved:")
     print(" -", os.path.join(OUTPUT_DIR, "ml_regressor_metrics.json"))
