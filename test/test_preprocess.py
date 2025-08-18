@@ -93,13 +93,14 @@ class TestPreprocess(unittest.TestCase):
         target_minutes = target_t.hour * 60 + target_t.minute
         paths = self.get_snap_shot(target_date=target_date, target_time=target_time)
         option_file = paths[0]
-        merged = self.merge_option_ges(target_date, target_minutes, option_file)
-        self.assertIsInstance(merged, pd.DataFrame)
 
-    def merge_option_ges(self, target_date, target_minutes, option_file):
+        out_path = f"{out_dir}/merged_test2_{target_date}.csv"
         gex_base_dir = self.gex_base_dir
+        merged = self.merge_option_ges(target_minutes, gex_base_dir, option_file, out_path=out_path)
+        self.assertIsInstance(merged, pd.DataFrame, merged)
+
+    def merge_option_ges(self,target_minutes, gex_base_dir, option_file, out_path):
         merged = merge_gex(option_file, gex_base_dir, target_minutes=target_minutes)
-        out_path = f"{out_dir}/merged_test_{target_date}.csv"
         # got "merged_test_2025-08-13.csv"
         merged.to_csv(out_path, index=False)
         return merged
