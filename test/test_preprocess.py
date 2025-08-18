@@ -17,7 +17,7 @@ out_dir = "test/data/output"
 #csv_file = "coveredPut_2025-08-13_11_00.csv"
 csv_file = "coveredPut_2025-06-12_11_00.csv"
 csv_postfix = csv_file.replace("coveredPut_","").replace(".csv","")
-csv_path = f"test/data/put/{csv_file}"
+csv_path = f"option/put/{csv_file}"
 #out_path = Path(args.out)
 out_path = os.getenv("LABELED_TRADES_WITH_GEX")
 out_path = f"{out_dir}/{out_path}_{csv_postfix}"
@@ -75,9 +75,10 @@ class TestPreprocess(unittest.TestCase):
         self.assertGreater(len(paths), 0)
 
     def get_snap_shot(self, target_date="2025-08-13", target_time="11:00"): 
-        data_dir = "test/data/put"
+        #option_data_dir = "test/data/put"
+        option_data_dir = "option/put"
         glob_pat = f"coveredPut_{target_date}*.csv"
-        paths = pick_daily_snapshot_files(data_dir, glob_pat, target_time)
+        paths = pick_daily_snapshot_files(option_data_dir, glob_pat, target_time)
         return paths
     
     def test_pick_daily_snapshot_files(self):
@@ -92,12 +93,16 @@ class TestPreprocess(unittest.TestCase):
         target_minutes = target_t.hour * 60 + target_t.minute
         paths = self.get_snap_shot(target_date=target_date, target_time=target_time)
         option_file = paths[0]
-        merged = merge_gex(option_file, self.gex_base_dir, target_minutes=target_minutes)
+        merged = self.merge_option_ges(target_date, target_minutes, option_file)
+        self.assertIsInstance(merged, pd.DataFrame)
 
+    def merge_option_ges(self, target_date, target_minutes, option_file):
+        gex_base_dir = self.gex_base_dir
+        merged = merge_gex(option_file, gex_base_dir, target_minutes=target_minutes)
         out_path = f"{out_dir}/merged_test_{target_date}.csv"
         # got "merged_test_2025-08-13.csv"
         merged.to_csv(out_path, index=False)
-        self.assertIsInstance(merged, pd.DataFrame)
+        return merged
 
 
 
