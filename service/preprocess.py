@@ -185,7 +185,7 @@ def merge_gex(csv_path, base_dir, target_minutes):
         feat["gex_file"] = chosen_path if chosen_path else ""
         feat["gex_missing"] = 0 if gex_df is not None and not gex_df.empty else 1
         feats.append(feat)
-        if (idx + 1) % 1000 == 0:
+        if (idx + 1) % 100 == 0:
             print(f"[INFO] Processed {idx+1}/{len(trades)} rows")
 
     gex_df_all = pd.DataFrame(feats, index=trades.index)

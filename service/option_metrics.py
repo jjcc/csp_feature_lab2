@@ -45,6 +45,7 @@ def compute_option_metrics(
     dte_col: str = "daysToExpiration",
     iv_col: str = "impliedVolatility",  # annualized IV as a decimal, e.g. 0.55
     add_probabilities: bool = True,
+    moneyness_denominator: str = "underlying",  # "underlying" (dataset) or "strike"
 ) -> pd.DataFrame:
     """
     Adds/overwrites the following columns (where possible):
@@ -76,8 +77,15 @@ def compute_option_metrics(
 
     # Derived basics
     # Moneyness (put convention): (K - S)/K ; positive = ITM, negative = OTM
-    df["moneyness"] = _safe_div(K - S, K)
+    # --- FIX: moneyness denominator ---
+    if moneyness_denominator == "underlying":
+        denom = S
+    elif moneyness_denominator == "strike":
+        denom = K
+    else:
+        raise ValueError("moneyness_denominator must be 'underlying' or 'strike'")
 
+    df["moneyness"] = _safe_div(K - S, denom)  # positive (ITM put) when K > S
     # Break-even (using bid)
     break_even = K - bid
     df["breakEvenBid"] = break_even
@@ -86,8 +94,7 @@ def compute_option_metrics(
     df["percentToBreakEvenBid"] = _safe_div(break_even - S, S) * 100.0
 
     # Potential return % = bid / (K - bid) * 100  (guard K == bid)
-    denom_intrinsic = K - bid
-    df["potentialReturn"] = _safe_div(bid, denom_intrinsic) * 100.0
+    df["potentialReturn"] = _safe_div(bid, (K - bid)) * 100.0
 
     # Annualized potential return % = potentialReturn / DTE * 365
     df["potentialReturnAnnual"] = _safe_div(df["potentialReturn"], dte) * 365.0
