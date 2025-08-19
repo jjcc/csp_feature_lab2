@@ -41,13 +41,16 @@ class TestOptionMetrics(unittest.TestCase):
 
         # Inspect the enriched DataFrame
         print(out.head())
+        count = 0
         for idx, row in out.iterrows():
             row_o = df_o.iloc[idx]
             for col in row.index:
                 if col in row_o.index:
                     diff =  row[col] - row_o[col]
-                    if diff > 0.002:
-                        print(f"Significant difference in row {idx}, column '{col}': {row[col]} != {row_o[col]}")
+                    if diff > 0.0001:
+                        print(f"Significant difference in row {idx}, column '{col}': cal:{row[col]} != orig:{row_o[col]}")
+                        count += 1
+        print(f"Total significant differences found: {count}")
 
         out.to_csv("test/data/output/with_metrics.csv", index=False)
 

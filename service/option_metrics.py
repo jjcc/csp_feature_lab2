@@ -85,19 +85,22 @@ def compute_option_metrics(
     else:
         raise ValueError("moneyness_denominator must be 'underlying' or 'strike'")
 
-    df["moneyness"] = _safe_div(K - S, denom)  # positive (ITM put) when K > S
+    df["moneyness"] = np.round(_safe_div(K - S, denom),8)  # positive (ITM put) when K > S
     # Break-even (using bid)
     break_even = K - bid
     df["breakEvenBid"] = break_even
 
     # Percent to break-even (matches your sample): (BE - S)/S * 100
-    df["percentToBreakEvenBid"] = _safe_div(break_even - S, S) * 100.0
+    df["percentToBreakEvenBid"] = np.round(_safe_div(break_even - S, S) * 100.0, 2)
 
     # Potential return % = bid / (K - bid) * 100  (guard K == bid)
-    df["potentialReturn"] = _safe_div(bid, (K - bid)) * 100.0
+    potentialReturn_br = _safe_div(bid, (K - bid)) * 100.0
 
     # Annualized potential return % = potentialReturn / DTE * 365
-    df["potentialReturnAnnual"] = _safe_div(df["potentialReturn"], dte) * 365.0
+    df["potentialReturnAnnual"] = np.round(_safe_div(potentialReturn_br, dte) * 365, 3)
+
+    # Potential return % = bid / (K - bid) * 100  (guard K == bid)
+    df["potentialReturn"] = np.round(_safe_div(bid, (K - bid)) * 100.0, 5)
 
     # Probabilities (requires IV)
     if add_probabilities and iv_col in df.columns:
