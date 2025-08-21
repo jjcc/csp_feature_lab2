@@ -188,6 +188,31 @@ def load_csp_files_old(data_dir: str, pattern: str) -> pd.DataFrame:
         raise SystemExit(f"No files found for pattern {pattern} in {data_dir}")
     return pd.concat(frames, ignore_index=True)  # (unused now)
 
+def derive_capital(df, policy="strike100", constant_capital=10_000.0):
+    strike = pd.to_numeric(df["strike"], errors="coerce")
+    ul = pd.to_numeric(df.get("underlyingLastPrice"), errors="coerce")
+    # per-share option price at entry (fallback to bidPrice)
+    opt_px = pd.to_numeric(df.get("bid", df.get("bidPrice")), errors="coerce")
+    entry_credit = pd.to_numeric(df["entry_credit"], errors="coerce")  # already *100
+
+    if policy == "constant":
+        df["capital"] = float(constant_capital)
+        cap = df["capital"]
+    elif policy == "strike100":
+        cap = 100.0 * strike
+    elif policy == "credit_adjusted":
+        cap = 100.0 * strike - entry_credit
+    elif policy == "regt_light":
+        # Rough Reg-T proxy for short puts: per-share margin = option_px + max(0.20*UL - OTM, 0.10*UL)
+        otm = np.maximum(ul - strike, 0.0)
+        per_share_margin = opt_px + np.maximum(0.20*ul - otm, 0.10*ul)
+        cap = 100.0 * per_share_margin
+    else:
+        cap = 100.0 * strike
+
+    cap = pd.to_numeric(cap, errors="coerce").replace([np.inf,-np.inf], np.nan)
+    # sensible floor to avoid divide-by-zero
+    return pd.Series(cap).fillna(100.0 * strike).clip(lower=50.0)
 
 
 def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = None) -> pd.DataFrame:
@@ -265,72 +290,13 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     df["exit_intrinsic"] = df.apply(exit_intrinsic, axis=1)
 
     # Capital reserved for CSP
-    df["capital"] = df["strike"].apply(safe_float)*100.0
+    df["capital"] = derive_capital(df)
 
     # Total PnL and return
     df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
     df["return_pct"] = np.where(df["capital"]>0, df["total_pnl"]/df["capital"]*100.0, np.nan)
 
     return df
-
-def run_model(labeled: pd.DataFrame, out_dir: str):
-    # Feature columns (only those that exist and are numeric)
-    candidate_cols = [
-        "moneyness","percentToBreakEvenBid","impliedVolatilityRank1y","delta",
-        "potentialReturn","potentialReturnAnnual","breakEvenProbability",
-        "openInterest","volume","underlyingLastPrice","strike"
-    ]
-    feats = [c for c in candidate_cols if c in labeled.columns]
-    X = labeled[feats].apply(pd.to_numeric, errors="coerce")
-    y = labeled["win"]
-
-    mask = (~X.isna().any(axis=1)) & (~y.isna())
-    X = X[mask]
-    y = y[mask]
-
-    if len(X) < 50:
-        print(f"[WARN] Only {len(X)} clean rows after filtering; results may be unstable.")
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y if y.nunique()>1 else None)
-    clf = RandomForestClassifier(n_estimators=400, random_state=42, class_weight="balanced")
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    report = classification_report(y_test, y_pred, zero_division=0)
-    print(report)
-
-    # Save outputs
-    labeled.to_csv(os.path.join(out_dir, "labeled_trades.csv"), index=False)
-    importances = pd.Series(clf.feature_importances_, index=feats).sort_values(ascending=False)
-    importances.to_csv(os.path.join(out_dir, "feature_importances.csv"), header=["importance"])
-    with open(os.path.join(out_dir, "classification_report.txt"), "w") as f:
-        f.write(report)
-
-    print("\nTop features:\n", importances.head(10))
-
-def run_regression_model(labeled, out_dir):
-    feats = ["moneyness","percentToBreakEvenBid","impliedVolatilityRank1y",
-             "delta","potentialReturn","potentialReturnAnnual",
-             "breakEvenProbability","openInterest","volume",
-             "underlyingLastPrice","strike"]
-    X = labeled[feats].apply(pd.to_numeric, errors="coerce")
-    y = labeled["return_pct"]
-
-    mask = (~X.isna().any(axis=1)) & (~y.isna())
-    X, y = X[mask], y[mask]
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-    reg = RandomForestRegressor(n_estimators=400, random_state=42)
-    reg.fit(X_train, y_train)
-    y_pred = reg.predict(X_test)
-
-    print("R²:", r2_score(y_test, y_pred))
-    print("MAE:", mean_absolute_error(y_test, y_pred))
-    #print("RMSE:", mean_squared_error(y_test, y_pred))
-    print("RMSE:", root_mean_squared_error(y_test, y_pred))
-
-    pd.Series(reg.feature_importances_, index=feats).sort_values(ascending=False)\
-        .to_csv(os.path.join(out_dir, "feature_importances_regression.csv"))
-
 
 def main():
     #ap = argparse.ArgumentParser()
@@ -358,8 +324,7 @@ def main():
     labeled = labeled[~labeled["win"].isna()].copy()
 
     out_dir = getenv("OUTPUT_DIR", "./output")
-    run_model(labeled, out_dir)
-    #run_regression_model(labeled, out_dir)
+    labeled.to_csv(os.path.join(out_dir, "labeled_trades_normal.csv"), index=False)
 
 if __name__ == "__main__":
     main()
