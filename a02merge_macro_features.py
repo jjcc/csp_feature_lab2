@@ -149,6 +149,9 @@ def main():
     px_feat = pd.concat(feats, ignore_index=True) if feats else pd.DataFrame(columns=["trade_date","baseSymbol"])
     # Merge VIX (by date) and PX features (by date+symbol)
     d = d.merge(vix_df, on="trade_date", how="left")
+    # Fill missing VIX values with the previous date value of vix_df
+    d["VIX"].fillna(method="ffill", inplace=True)
+
     px_feat.rename(columns={"Date": "trade_date"}, inplace=True)
     d = d.merge(px_feat, on=["trade_date","baseSymbol"], how="left")
 
