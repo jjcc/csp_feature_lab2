@@ -21,6 +21,7 @@ from os import getenv
 from pathlib import Path
 import glob
 import argparse
+from time import sleep
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score, root_mean_squared_error
@@ -38,34 +39,32 @@ def ensure_cache_dir(out_dir):
     os.makedirs(pc, exist_ok=True)
     return pc
 
-def load_cached_close_series(cache_dir, symbol):
+def load_cached_price_data(cache_dir, symbol):
     p = os.path.join(cache_dir, f"{symbol}.parquet")
     if os.path.exists(p):
         try:
-            s = pd.read_parquet(p)
-            if isinstance(s, pd.DataFrame) and "Close" in s.columns:
-                s = s["Close"]
-            s.index = pd.to_datetime(s.index)
-            return s
+            df = pd.read_parquet(p)
+            df.index = pd.to_datetime(df.index)
+            return df
         except Exception as e:
             print(f"[WARN] cache read failed for {symbol}: {e}")
     return None
 
-def save_cached_close_series(cache_dir, symbol, close_series: pd.Series):
+def save_cached_price_data(cache_dir, symbol, price_df: pd.DataFrame):
     try:
-        df = close_series.to_frame("Close")
-        df.to_parquet(os.path.join(cache_dir, f"{symbol}.parquet"))
+        price_df.to_parquet(os.path.join(cache_dir, f"{symbol}.parquet"))
     except Exception as e:
         print(f"[WARN] cache write failed for {symbol}: {e}")
 
-def download_closes_batched(symbols, start_dt, end_dt, batch_size=30, threads=True):
+def download_prices_batched(symbols, start_dt, end_dt, batch_size=30, threads=True):
     """
-    Download daily Close prices for many symbols in batches using yfinance.
-    Returns dict: symbol -> pd.Series (Close)
+    Download daily OHLCV prices for many symbols in batches using yfinance.
+    Returns dict: symbol -> pd.DataFrame (Open, High, Low, Close, Volume, etc.)
     """
     import yfinance as yf
     import math
     symbols = sorted(set([s for s in symbols if isinstance(s, str) and len(s)>0]))
+    symbols = [s if "." not in s else s.replace(".", "_") for s in symbols]  # ensure uppercase
     out = {}
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i:i+batch_size]
@@ -74,26 +73,31 @@ def download_closes_batched(symbols, start_dt, end_dt, batch_size=30, threads=Tr
                              interval="1d", group_by="ticker", auto_adjust=False, threads=threads, progress=False)
             # yfinance returns multi-index columns when multiple tickers
             if isinstance(df.columns, pd.MultiIndex):
-                # df columns like ('AAPL','Close'), ('MSFT','Close'), ...
+                # df columns like ('AAPL','Open'), ('AAPL','High'), ('AAPL','Low'), ('AAPL','Close'), etc.
                 for sym in batch:
-                    if (sym, 'Close') in df.columns:
-                        s = df[(sym, 'Close')].dropna()
-                        s.index = pd.to_datetime(s.index)
-                        out[sym] = s
+                    sym_cols = [col for col in df.columns if col[0] == sym]
+                    if sym_cols:
+                        sym_df = df[[col for col in sym_cols]]
+                        # Flatten column names: ('AAPL', 'Close') -> 'Close'
+                        sym_df.columns = [col[1] for col in sym_df.columns]
+                        sym_df = sym_df.dropna(how='all')
+                        sym_df.index = pd.to_datetime(sym_df.index)
+                        out[sym] = sym_df
             else:
-                # single ticker case
-                s = df['Close'].dropna()
-                s.index = pd.to_datetime(s.index)
-                out[batch[0]] = s
+                # single ticker case - df already has columns like 'Open', 'High', 'Low', 'Close', etc.
+                df = df.dropna(how='all')
+                df.index = pd.to_datetime(df.index)
+                out[batch[0]] = df
         except Exception as e:
             print(f"[WARN] batch download failed for {batch}: {e}")
+        sleep(1)  # avoid hitting API limits
     return out
 
-def preload_closes_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None):
+def preload_prices_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None):
     """
     From the raw CSP rows, determine unique symbols and date window,
     load from cache if available, batch-download missing ones, and save to cache.
-    Returns dict: symbol -> Close series
+    Returns dict: symbol -> DataFrame with OHLCV data
     """
     cache_dir = ensure_cache_dir(out_dir)
     # Determine symbols and window
@@ -119,29 +123,29 @@ def preload_closes_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None)
     elif end_dt.weekday() == 6:  # Sunday
         end_dt -= pd.Timedelta(days=2)
     # Load from cache or mark missing
-    closes = {}
+    prices = {}
     missing = []
     for s in syms:
-        cs = load_cached_close_series(cache_dir, s)
-        if cs is not None and (cs.index.min() <= start_dt) and (cs.index.max() >= end_dt):
-            closes[s] = cs
+        price_df = load_cached_price_data(cache_dir, s)
+        if price_df is not None and (price_df.index.min() <= start_dt) and (price_df.index.max() >= end_dt):
+            prices[s] = price_df
         else:
             missing.append(s)
     if missing:
         print(f"[INFO] Downloading {len(missing)} symbols in batches (size={batch_size})...")
-        fetched = download_closes_batched(missing, start_dt, end_dt, batch_size=batch_size, threads=True)
-        for s, ser in fetched.items():
-            closes[s] = ser
-            save_cached_close_series(cache_dir, s, ser)
-    return closes
+        fetched = download_prices_batched(missing, start_dt, end_dt, batch_size=batch_size, threads=True)
+        for s, price_df in fetched.items():
+            prices[s] = price_df
+            save_cached_price_data(cache_dir, s, price_df)
+    return prices
 
-def lookup_close_on_or_before(series: pd.Series, target_dt: pd.Timestamp) -> float:
-    if series is None or series.empty or pd.isna(target_dt):
+def lookup_close_on_or_before(price_df: pd.DataFrame, target_dt: pd.Timestamp) -> float:
+    if price_df is None or price_df.empty or pd.isna(target_dt) or 'Close' not in price_df.columns:
         return np.nan
-    sub = series[series.index<=pd.to_datetime(target_dt)]
+    sub = price_df[price_df.index<=pd.to_datetime(target_dt)]
     if len(sub)==0:
         return np.nan
-    return float(sub.iloc[-1])
+    return float(sub['Close'].iloc[-1])
 
 
 def safe_float(x):
@@ -150,24 +154,6 @@ def safe_float(x):
     except Exception:
         return np.nan
 
-def get_expiry_close(symbol: str, expiry_ts: pd.Timestamp) -> float:
-    """
-    Fetch the underlying close on expiry day; if none (weekend/holiday), use the last close before expiry.
-    """
-    try:
-        start = (expiry_ts - pd.Timedelta(days=5)).date()
-        end = (expiry_ts + pd.Timedelta(days=1)).date()
-        df = yf.download(symbol, start=start, end=end, interval="1d", progress=False)
-        if df.empty:
-            return np.nan
-        # pick the last close on or before expiry date
-        mask = df.index.date <= expiry_ts.date()
-        sub = df.loc[mask]
-        if sub.empty:
-            return np.nan
-        return float(sub["Close"].iloc[-1])
-    except Exception:
-        return np.nan
 
 
 
@@ -244,13 +230,13 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     if max_rows and max_rows > 0:
         df = df.head(max_rows).copy()
 
-    # Use preloaded closes to compute expiry_close
+    # Use preloaded prices to compute expiry_close
     def expiry_close_from_cache(r):
         if preload_closes is None:
             return np.nan
         sym = str(r['baseSymbol']).upper()
-        ser = preload_closes.get(sym)
-        return lookup_close_on_or_before(ser, r['expirationDate']) if ser is not None else np.nan
+        price_df = preload_closes.get(sym)
+        return lookup_close_on_or_before(price_df, r['expirationDate']) if price_df is not None else np.nan
     df['expiry_close'] = df.apply(expiry_close_from_cache, axis=1)
 
     # Compute labels and basic PnL (cash-settled approximation at expiry)
@@ -311,7 +297,7 @@ def main():
     # Preload price series with caching
     # out_dir = os.path.dirname(os.path.abspath(__file__))
     cache_dir = getenv("CACHE_DIR", "./output")
-    closes = preload_closes_with_cache(raw, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
+    closes = preload_prices_with_cache(raw, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
     labeled = build_dataset(raw, max_rows=0, preload_closes=closes)
     # Keep only rows that could be labeled (win not NaN)
     labeled = labeled[~labeled["win"].isna()].copy()
