@@ -1,0 +1,18 @@
+# Folders to ignore
+.vscode/
+log/
+gex101/
+option/
+output/
+__pycache__/
+.git/
+node_modules/
+.venv*/
+.env*
+
+# File patterns to ignore
+*.log
+*.tmp
+*.cache
+*.pyc
+.DS_Store
