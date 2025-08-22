@@ -299,13 +299,6 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     return df
 
 def main():
-    #ap = argparse.ArgumentParser()
-    #ap.add_argument("--data_dir", type=str, required=True, help="Folder containing CSP CSVs")
-    #ap.add_argument("--glob", type=str, default="coveredPut_*.csv", help="Glob for CSP files")
-    #ap.add_argument("--target_time", type=str, default="11:00", help="Target snapshot time HH:MM")
-    #ap.add_argument("--all_snapshots", action="store_true", help="Use all files instead of one-per-day pick")
-    #ap.add_argument("--max_rows", type=int, default=0, help="Limit rows per file (0 = no limit)")
-    #args = ap.parse_args()
 
     data_dir = getenv("DATA_DIR", "")
     glob_pat = getenv("GLOB", "coveredPut_*.csv")
