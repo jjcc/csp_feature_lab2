@@ -8,6 +8,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
+import yfinance as yf
 
 def _coerce_dt(s):
     return pd.to_datetime(s, errors="coerce")
@@ -17,16 +18,23 @@ def _load_vix(vix_csv, start_date, end_date, use_yf=True):
     if vix_csv and Path(vix_csv).exists():
         vdf = pd.read_csv(vix_csv)
         date_col = "Date" if "Date" in vdf.columns else "date"
-        close_col = "Close" if "Close" in vdf.columns else "close"
+        close_col = "VIX" if "VIX" in vdf.columns else "Close"
         vdf[date_col] = pd.to_datetime(vdf[date_col], errors="coerce")
         vdf = vdf.dropna(subset=[date_col]).set_index(date_col).sort_index()
         return vdf.loc[start_date:end_date, close_col].rename("VIX").astype(float)
-    if use_yf:
+    #if use_yf:
+    else:
         try:
-            import yfinance as yf
-            s = yf.download("^VIX", start=start_date, end=end_date)
-            s = s["Close"].rename("VIX")
+            df = yf.download("^VIX", start=start_date, end=end_date)
+            # Handle MultiIndex columns from yfinance
+            if isinstance(df.columns, pd.MultiIndex):
+                # Get single-index DataFrame by selecting the ^VIX ticker level
+                vix_df = df.xs("^VIX", axis=1, level=1)  # Extract ^VIX columns, drop MultiIndex
+                s = vix_df["Close"].rename("VIX")
+            else:
+                s = df["Close"].rename("VIX")
             s.index = pd.to_datetime(s.index)
+            s.to_csv(vix_csv)
             return s
         except Exception:
             pass
@@ -105,9 +113,9 @@ def main():
     df["trade_date"] = df["tradeTime"].dt.floor("D")
 
     # VIX (global)
-    start_date = df["trade_date"].min() - pd.Timedelta(days=60)
+    start_date = df["trade_date"].min() # - pd.Timedelta(days=60)
     end_date   = df["trade_date"].max() + pd.Timedelta(days=1)
-    vix = _load_vix(start_date, end_date, use_yf=USE_YFIN)
+    vix = _load_vix(VIX_CSV,start_date, end_date, use_yf=USE_YFIN)
     vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
 
     # Per-symbol price features
@@ -141,6 +149,7 @@ def main():
     px_feat = pd.concat(feats, ignore_index=True) if feats else pd.DataFrame(columns=["trade_date","baseSymbol"])
     # Merge VIX (by date) and PX features (by date+symbol)
     d = d.merge(vix_df, on="trade_date", how="left")
+    px_feat.rename(columns={"Date": "trade_date"}, inplace=True)
     d = d.merge(px_feat, on=["trade_date","baseSymbol"], how="left")
 
     # Gap between previous close and current strike
