@@ -83,7 +83,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score, precision_re
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 
 # --- Config ---
-CSV_INPUT = os.getenv("BASIC_CSV", "/mnt/data/labeled_trades_with_gex.csv")
+CSV_INPUT = os.getenv("MACRO_FEATURE_CSV", "/mnt/data/labeled_trades_with_gex.csv")
 MODEL_OUT = os.getenv("MODEL_OUT", "/mnt/data/tail_model_gex_v1_plus.pkl")
 IMP_OUT = os.getenv("IMP_OUT", "/mnt/data/tail_gex_v1_plus_feature_importances.csv")
 SCORES_OUT = os.getenv("SCORES_OUT", "/mnt/data/tail_gex_v1_plus_scores_oof.csv")
