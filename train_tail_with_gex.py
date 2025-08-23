@@ -4,6 +4,9 @@ Tail-Loss Classifier (v1, .env-driven)
 --------------------------------------
 This replicates the original "v1" trainer logic, but loads configuration
 from a `.env` file instead of command-line arguments.
+This extends the user's v1 trainer by optionally adding:
+- VIX regime features
+- 2-day & 5-day underlying cumulative returns (and normalized versions)
 
 Key characteristics (same as v1):
 - **Labeling:** tails are the *worst K% by dollar PnL* (no hybrid labels).
@@ -12,15 +15,29 @@ Key characteristics (same as v1):
 - **CV:** StratifiedKFold (default) or time-based splits for OOF predictions.
 - **Artifacts:** compact joblib with model + medians + metadata, CSV of
   feature importances, and optional sampled OOF scores.
+Key changes vs v1 (train_tail_with_gex.py):
+- Robust feature engineering that avoids leakage by using daily closes up to trade date.
+- Fix: _fill_features now returns Xdf[feat_list] (was using ALL_FEATS inadvertently).
+
 
 USAGE
 -----
-1) Create a `.env` (or copy the template provided alongside this script):
-   cp tail_train_v1.example.env .env
+1) Copy your .env or use the example below:
    # then edit paths/params as needed
 
+CSV_INPUT=/mnt/data/labeled_trades_with_gex.csv
+MODEL_OUT=/mnt/data/tail_model_gex_v1_plus.pkl
+IMP_OUT=/mnt/data/tail_gex_v1_plus_feature_importances.csv
+SCORES_OUT=/mnt/data/tail_gex_v1_plus_scores_oof.csv
+METRICS_OUT=/mnt/data/tail_train_metrics_v1_plus.json
+SAVE_SCORES_SAMPLE=20000
+TAIL_PCT=0.03
+CV_TYPE=stratified
+FOLDS=5
+SEED=42
+
 2) Run:
-   python train_tail_with_gex_v1_env.py
+   python train_tail_with_gex.py
 
 ENV VARS
 --------
@@ -34,6 +51,11 @@ TAIL_PCT            Tail fraction by dollar PnL quantile (e.g., 0.03)
 CV_TYPE             'stratified' (default) or 'time'
 FOLDS               Number of folds/splits
 SEED                Random seed for reproducibility
+
+Notes:
+- Join features by calendar date (tradeTime.date()).
+- Returns are cumulative sums of daily % returns over last 2/5 trading days.
+- Normalized returns divide by 20-day rolling std of daily returns to stabilize scale.
 """
 import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
@@ -61,11 +83,11 @@ from sklearn.metrics import roc_auc_score, average_precision_score, precision_re
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 
 # --- Config ---
-CSV_INPUT = os.getenv("CSV_INPUT", "/mnt/data/labeled_trades_with_gex.csv")
-MODEL_OUT = os.getenv("MODEL_OUT", "/mnt/data/tail_model_gex_v1.pkl")
-IMP_OUT = os.getenv("IMP_OUT", "/mnt/data/tail_gex_v1_feature_importances.csv")
-SCORES_OUT = os.getenv("SCORES_OUT", "/mnt/data/tail_gex_v1_scores_oof.csv")
-METRICS_OUT = os.getenv("METRICS_OUT", "/mnt/data/tail_train_metrics_v1.json")
+CSV_INPUT = os.getenv("BASIC_CSV", "/mnt/data/labeled_trades_with_gex.csv")
+MODEL_OUT = os.getenv("MODEL_OUT", "/mnt/data/tail_model_gex_v1_plus.pkl")
+IMP_OUT = os.getenv("IMP_OUT", "/mnt/data/tail_gex_v1_plus_feature_importances.csv")
+SCORES_OUT = os.getenv("SCORES_OUT", "/mnt/data/tail_gex_v1_plus_scores_oof.csv")
+METRICS_OUT = os.getenv("METRICS_OUT", "/mnt/data/tail_train_metrics_v1_plus.json")
 SAVE_SCORES_SAMPLE = int(os.getenv("SAVE_SCORES_SAMPLE", "20000"))
 
 TAIL_PCT = float(os.getenv("TAIL_PCT", "0.03"))
@@ -74,9 +96,11 @@ FOLDS = int(os.getenv("FOLDS", "5"))
 SEED = int(os.getenv("SEED", "42"))
 
 
+DATE_COL = os.getenv("DATE_COL", "tradeTime")
+PRICE_COL = os.getenv("PRICE_COL", "underlyingLastPrice")
 
 def _prep_df(df: pd.DataFrame) -> pd.DataFrame:
-    # Parse times
+    # Keep parity with original prep, but allow injection of new features
     for c in ("tradeTime","expirationDate"):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce")
@@ -108,16 +132,26 @@ def _fill_features(df: pd.DataFrame, feat_list):
             med = Xdf[c].median(skipna=True)
             medians[c] = float(med) if pd.notna(med) else 0.0
             Xdf[c] = Xdf[c].fillna(medians[c])
-    return Xdf[ALL_FEATS].astype(float), medians
+    # FIX: return the columns requested by feat_list (not ALL_FEATS)
+    return Xdf[feat_list].astype(float), medians
 
 def main():
     # 1) Load & prep
     df = pd.read_csv(CSV_INPUT)
     #df = _prep_df(df).dropna(subset=["total_pnl"]).sort_values("tradeTime").reset_index(drop=True)
+    # Use project utility for canonical prep (matches user's v1), then enrich.
     df = prep_tail_training_df(df).dropna(subset=["total_pnl"]).sort_values("tradeTime").reset_index(drop=True)
+    #df = _build_macro_micro_features(df)
 
-    # 2) Features
-    Xdf, medians = _fill_features(df, ALL_FEATS)
+    # 2) Feature list: original + new (present only if computed)
+    NEW_FEATS = ["VIX", "ret_2d", "ret_5d", "ret_2d_norm", "ret_5d_norm"]
+    feat_list = list(ALL_FEATS)
+    for nf in NEW_FEATS:
+        if nf in df.columns:
+            feat_list.append(nf)
+
+    # 3) Build X and label tails by return_pct quantile
+    Xdf, medians = _fill_features(df, feat_list)
     X = Xdf.values
 
     # 3) Label tails (worst TAIL_PCT by dollar pnl)
