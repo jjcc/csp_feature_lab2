@@ -13,7 +13,7 @@ import yfinance as yf
 def _coerce_dt(s):
     return pd.to_datetime(s, errors="coerce")
 
-def _load_vix(vix_csv, start_date, end_date, use_yf=True):
+def _load_vix(vix_csv, start_date, end_date):
     # Return a Series indexed by date (daily), name="VIX"
     if vix_csv and Path(vix_csv).exists():
         vdf = pd.read_csv(vix_csv)
@@ -40,7 +40,7 @@ def _load_vix(vix_csv, start_date, end_date, use_yf=True):
             pass
     return pd.Series(dtype=float, name="VIX")
 
-def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=True):
+def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
     # Return a Series indexed by date (business days ok), name="Close"
     if px_dir:
         #f = Path(px_dir) / f"{symbol}.csv"
@@ -60,6 +60,7 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=True):
                 df = df.dropna(subset=[date_col]).set_index(date_col).sort_index()
                 return df.loc[start_date:end_date, close_col].rename("Close").astype(float)
     if use_yf and symbol:
+        raise NotImplementedError("Yahoo Finance integration not implemented")
         try:
             import yfinance as yf
             s = yf.download(symbol, start=start_date, end=end_date)
@@ -94,13 +95,15 @@ def main():
     load_dotenv()
 
     out_dir = os.getenv("OUT_DIR", "output")
-    in_csv  = f"{out_dir}/labeled_trades_normal.csv"
-    out_csv = f"{out_dir}/labeled_trades_with_macro.csv"
+    IN_CSV_FILE = os.getenv("GEX_CSV", "labeled_trades_gex_normal.csv")
+    in_csv  = f"{out_dir}/{IN_CSV_FILE}"
+    MACROFEATURE_CSV = os.getenv("MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")   
+    out_csv = f"{out_dir}/{MACROFEATURE_CSV}"
 
     # Sources
     VIX_CSV     = os.getenv("VIX_CSV", "").strip() or None
     PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
-    USE_YFIN    = bool(int(os.getenv("USE_YFINANCE", "1")))
+    #USE_YFIN    = bool(int(os.getenv("USE_YFINANCE", "1")))
 
     # Read trades
     df = pd.read_csv(in_csv)
@@ -115,7 +118,7 @@ def main():
     # VIX (global)
     start_date = df["trade_date"].min() # - pd.Timedelta(days=60)
     end_date   = df["trade_date"].max() + pd.Timedelta(days=1)
-    vix = _load_vix(VIX_CSV,start_date, end_date, use_yf=USE_YFIN)
+    vix = _load_vix(VIX_CSV,start_date, end_date)
     vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
 
     # Per-symbol price features
@@ -137,7 +140,7 @@ def main():
         date_span_min = d.loc[s_mask, "trade_date"].min() - pd.Timedelta(days=60)
         date_span_max = d.loc[s_mask, "trade_date"].max() + pd.Timedelta(days=1)
 
-        s_px = _load_symbol_prices(sym, PX_BASE_DIR, date_span_min, date_span_max, use_yf=USE_YFIN)
+        s_px = _load_symbol_prices(sym, PX_BASE_DIR, date_span_min, date_span_max)
         f = _per_symbol_feature_frame(s_px)
         if f.empty:
             # still create a frame with index to allow merge (will be NaN)
