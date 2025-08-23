@@ -30,9 +30,10 @@ def main():
     #args = ap.parse_args()
 
     out_dir = os.getenv("OUT_DIR", "output")
-    csv_path = f"{out_dir}/labeled_trades.csv"
+    csv_input = os.getenv("BASIC_CSV")
+    csv_path = f"{out_dir}/{csv_input}"
     #out_path = Path(args.out)
-    out_path = os.getenv("LABELED_TRADES_WITH_GEX")
+    out_path = os.getenv("GEX_CSV")
     out_path = f"{out_dir}/{out_path}"
 
     base_dir = os.getenv("GEX_BASE_DIR")
