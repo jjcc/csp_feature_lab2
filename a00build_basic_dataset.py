@@ -290,6 +290,7 @@ def main():
     glob_pat = getenv("GLOB", "coveredPut_*.csv")
     target_time = getenv("TARGET_TIME", "11:00")
     batch_size = int(getenv("BATCH_SIZE", "30"))
+    basic_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
 
     cut_off_date = "2025-08-09"
     cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else None
@@ -303,7 +304,7 @@ def main():
     labeled = labeled[~labeled["win"].isna()].copy()
 
     out_dir = getenv("OUTPUT_DIR", "./output")
-    labeled.to_csv(os.path.join(out_dir, "labeled_trades_normal.csv"), index=False)
+    labeled.to_csv(os.path.join(out_dir, basic_csv), index=False)
 
 if __name__ == "__main__":
     main()
