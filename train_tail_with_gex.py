@@ -59,7 +59,7 @@ Notes:
 """
 import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
-from service.utils import prep_tail_training_df, ALL_FEATS
+from service.utils import BASE_FEATS, GEX_FEATS, NEW_FEATS, prep_tail_training_df, ALL_FEATS
 
 # Load .env (robustly try CWD and script dir)
 def _load_env():
@@ -144,11 +144,12 @@ def main():
     #df = _build_macro_micro_features(df)
 
     # 2) Feature list: original + new (present only if computed)
-    NEW_FEATS = ["VIX", "ret_2d", "ret_5d", "ret_2d_norm", "ret_5d_norm"]
-    feat_list = list(ALL_FEATS)
-    for nf in NEW_FEATS:
-        if nf in df.columns:
-            feat_list.append(nf)
+    #{'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
+    # NEW_FEATS = ["VIX", "ret_2d_norm", "ret_5d_norm",'prev_close_minus_strike_pct','log1p_DTE']
+    feat_list = list(BASE_FEATS + GEX_FEATS + NEW_FEATS)  # copy
+    #for nf in NEW_FEATS:
+    #    if nf in df.columns:
+    #        feat_list.append(nf)
 
     # 3) Build X and label tails by return_pct quantile
     Xdf, medians = _fill_features(df, feat_list)

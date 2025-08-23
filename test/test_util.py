@@ -30,6 +30,34 @@ class TestUtil(unittest.TestCase):
         assert(medians_x == medians_t)
 
         self.assertIsInstance(result1, pd.DataFrame)
+    
+    def test_compare_different_datasets(self):
+        """
+        compare the columns of basic, gex, and macro feature datasets
+        """
+        df_basic = pd.read_csv("output/labeled_trades_normal.csv")
+        df_gex = pd.read_csv("output/labeled_trades_with_gex_normal.csv")
+        df_macro = pd.read_csv("output/labeled_trades_normal_gex_macro.csv")
+
+        cols_basic = set(df_basic.columns)
+        cols_gex = set(df_gex.columns)
+        cols_macro = set(df_macro.columns)
+
+        gex_extra = cols_gex - cols_basic
+        macro_extra = cols_macro - cols_gex
+        print(f"gex extra = {gex_extra}")
+        print(f"macro extra = {macro_extra}")
+
+        # GEX dataset should have all columns of basic dataset plus some additional columns
+        self.assertTrue(cols_basic.issubset(cols_gex))
+        self.assertTrue(len(cols_gex) > len(cols_basic))
+
+        # Macro dataset should have all columns of GEX dataset plus some additional columns
+        self.assertTrue(cols_gex.issubset(cols_macro))
+        self.assertTrue(len(cols_macro) > len(cols_gex))
+
+        #gex extra = {'gex_pos', 'gex_missing', 'gex_distance_to_flip', 'gex_total_abs', 'symbol_norm', 'gex_sign_at_ul', 'gex_flip_strike', 'gex_file', 'trade_date', 'gex_neg', 'gex_center_abs_strike', 'gex_total', 'gex_gamma_at_ul'}
+        #macro extra = {'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
 
 
 if __name__ == '__main__':

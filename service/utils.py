@@ -41,7 +41,11 @@ GEX_FEATS = [
     "gex_center_abs_strike","gex_flip_strike","gex_gamma_at_ul",
     "gex_distance_to_flip","gex_sign_at_ul","gex_missing",
 ]
-ALL_FEATS = BASE_FEATS + GEX_FEATS
+
+#{'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
+NEW_FEATS = ["VIX", "ret_2d_norm", "ret_5d_norm",'prev_close_minus_strike_pct','log1p_DTE']
+
+ALL_FEATS = BASE_FEATS + GEX_FEATS + NEW_FEATS
 # ---------- FS / ENV helpers ----------
 
 # ---- Existing helpers kept minimal to avoid conflicts ----
