@@ -19,6 +19,15 @@ Key changes vs v1 (train_tail_with_gex.py):
 - Robust feature engineering that avoids leakage by using daily closes up to trade date.
 - Fix: _fill_features now returns Xdf[feat_list] (was using ALL_FEATS inadvertently).
 
+(v1++ with VIX, Short-Term Moves, DTE & Normalized Returns)
+Enhancements over v1_env_plus:
+- Adds daysToExpiration (DTE) & log1p_DTE as features.
+- Computes normalized returns:
+    * return_per_day = return_pct / max(DTE, 1)
+    * return_ann     = ((1 + return_pct/100)**(365/max(DTE,1)) - 1) * 100
+- Lets you choose the labeling target via LABEL_ON: raw | per_day | annualized
+  (default: per_day). The tail quantile cut is then applied on this chosen target.
+
 
 USAGE
 -----
@@ -94,6 +103,7 @@ TAIL_PCT = float(os.getenv("TAIL_PCT", "0.03"))
 CV_TYPE = os.getenv("CV_TYPE", "stratified")
 FOLDS = int(os.getenv("FOLDS", "5"))
 SEED = int(os.getenv("SEED", "42"))
+LABEL_ON = os.getenv("LABEL_ON", "per_day").lower()  # raw | per_day | annualized
 
 
 DATE_COL = os.getenv("DATE_COL", "tradeTime")
@@ -119,6 +129,23 @@ def _prep_df(df: pd.DataFrame) -> pd.DataFrame:
         df["return_pct"] = 100.0 * df["total_pnl"] / capital
     return df
 
+def _add_dte_and_normalized_returns(df):
+    d = df.copy()
+    for c in ("tradeTime","expirationDate"):
+        if c in d.columns:
+            d[c] = pd.to_datetime(d[c], errors="coerce")
+
+    # The field daysToExpiration is supposed to exist
+    #d["daysToExpiration"] = ((d["expirationDate"].dt.floor("D") - d["tradeTime"].dt.floor("D"))
+    #                          .dt.days.clip(lower=1))
+    #d["log1p_DTE"] = np.log1p(d["daysToExpiration"].astype(float))
+
+    d["return_per_day"] = d["return_pct"] / d["daysToExpiration"].replace(0, 1)
+    #d["return_ann"] = ((1.0 + d["return_pct"] / 100.0) ** (365.0 / d["daysToExpiration"]) - 1.0) * 100.0
+    d["return_ann"] =d["return_pct"] * 365.0 / d["daysToExpiration"].replace(0, 1)
+    d["return_mon"] =d["return_pct"] * 30.0 / d["daysToExpiration"].replace(0, 1)
+    return d
+
 def _fill_features(df: pd.DataFrame, feat_list):
     medians = {}
     Xdf = df.copy()
@@ -142,6 +169,7 @@ def main():
     # Use project utility for canonical prep (matches user's v1), then enrich.
     df = prep_tail_training_df(df).dropna(subset=["total_pnl"]).sort_values("tradeTime").reset_index(drop=True)
     #df = _build_macro_micro_features(df)
+    df = _add_dte_and_normalized_returns(df)
 
     # 2) Feature list: original + new (present only if computed)
     #{'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
@@ -156,8 +184,19 @@ def main():
     X = Xdf.values
 
     # 3) Label tails (worst TAIL_PCT by dollar pnl)
-    tail_cut = df["return_pct"].quantile(TAIL_PCT)
-    y = (df["return_pct"] <= tail_cut).astype(int).values
+    if LABEL_ON == "raw":
+        target_df = df["return_pct"]
+    elif LABEL_ON == "annualized":
+        target_df = df["return_ann"]
+    elif LABEL_ON == "per_month":
+        target_df = df["return_mon"]
+    else: # default to per_day
+        target_df = df["return_per_day"]
+
+    #tail_cut = df["return_pct"].quantile(TAIL_PCT)
+    tail_cut = target_df.quantile(TAIL_PCT)
+    #y = (df["return_pct"] <= tail_cut).astype(int).values
+    y = (target_df <= tail_cut).astype(int).values
 
     # Sanity check
     if y.sum() < max(5, FOLDS):
@@ -172,7 +211,7 @@ def main():
         splits = splitter.split(X, y)
 
     oof = np.zeros(len(df), dtype=float)
-    importances = np.zeros(len(ALL_FEATS), dtype=float)
+    importances = np.zeros(len(feat_list), dtype=float)
     n_models = 0
 
     for tr_idx, va_idx in splits:
@@ -213,9 +252,10 @@ def main():
     joblib.dump({
         "model": clf_all,
         "medians": medians,
-        "features": ALL_FEATS,
+        "features": feat_list,
         "tail_pct": float(TAIL_PCT),
-        "tail_cut_return_pct": float(tail_cut), 
+        "label_on": LABEL_ON,
+        "tail_cut_value": float(tail_cut),
         "cv": CV_TYPE,
         "folds": int(FOLDS),
         "oof_auc": float(auc),
@@ -223,12 +263,15 @@ def main():
         "oof_best_threshold": float(best_threshold),
     }, MODEL_OUT)
 
-    (pd.DataFrame({"feature": ALL_FEATS, "importance": importances})
-        .sort_values("importance", ascending=False)
-        .to_csv(IMP_OUT, index=False))
+    pd.DataFrame({"feature": feat_list, "importance": importances}) \
+        .sort_values("importance", ascending=False) \
+        .to_csv(IMP_OUT, index=False)
 
     if SAVE_SCORES_SAMPLE > 0:
-        oof_df = df[["baseSymbol","tradeTime","expirationDate","strike","total_pnl"]].copy()
+        cols = ["baseSymbol","tradeTime","expirationDate","strike","total_pnl",
+                "return_pct","return_per_day","return_ann","daysToExpiration"]
+        have = [c for c in cols if c in df.columns]
+        oof_df = df[have].copy()
         oof_df["tail_proba_oof"] = oof
         oof_df["is_tail"] = y
         if len(oof_df) > SAVE_SCORES_SAMPLE:
@@ -240,7 +283,8 @@ def main():
             "rows": int(len(df)),
             "tails": int(int(y.sum())),
             "tail_pct": float(TAIL_PCT),
-            "tail_cut": float(tail_cut),
+            "label_on": LABEL_ON,
+            "tail_cut_value": float(tail_cut),
             "cv": CV_TYPE,
             "folds": int(FOLDS),
             "oof_auc": float(auc),
@@ -253,9 +297,10 @@ def main():
 
     print(f"[OK] Saved model → {MODEL_OUT}")
     print(f"     AUC={auc:.3f}, AP={ap:.3f}, best_threshold≈{best_threshold:.3f}")
+    print(f"     Label target: {LABEL_ON}, tail_cut_value={tail_cut:.4f}")
     print(f"     Importances → {IMP_OUT}")
     if SAVE_SCORES_SAMPLE > 0:
-        print(f"     OOF scores (sampled) → {SCORES_OUT}")
+        print(f"     OOF scores → {SCORES_OUT}")
     print(f"     Metrics → {METRICS_OUT}")
 
 if __name__ == "__main__":
