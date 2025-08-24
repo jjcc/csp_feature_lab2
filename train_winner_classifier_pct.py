@@ -71,7 +71,7 @@ from sklearn.utils import shuffle
 from dotenv import load_dotenv
 import joblib
 
-from service.utils import BASE_FEATS, NEW_FEATS
+from service.utils import BASE_FEATS, GEX_FEATS, NEW_FEATS
 from train_tail_with_gex import _add_dte_and_normalized_returns
 from sklearn.inspection import permutation_importance
 
@@ -131,10 +131,10 @@ def _parse_bool(val: str, default=False):
 
 # ---------- Core ----------
 
-def build_label(df: pd.DataFrame) -> pd.Series:
-    if "return_pct" not in df.columns:
-        raise ValueError("Column `return_pct` not found.")
-    return (pd.to_numeric(df["return_pct"], errors="coerce") > 0).astype(int)
+def build_label(df: pd.DataFrame, target_col: str) -> pd.Series:
+    if target_col not in df.columns:
+        raise ValueError(f"Column `{target_col}` not found.")
+    return (pd.to_numeric(df[target_col], errors="coerce") > 0).astype(int)
 
 def select_features(df: pd.DataFrame, explicit: List[str], id_cols: List[str]) -> List[str]:
     if explicit:
@@ -143,7 +143,7 @@ def select_features(df: pd.DataFrame, explicit: List[str], id_cols: List[str]) -
                 raise ValueError(f"Feature '{c}' not in dataframe.")
         return explicit
     exclude = set(id_cols or [])
-    exclude.add("return_pct")
+    exclude.add("return_pct","return_mon","return_ann")
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     feats = [c for c in numeric_cols if c not in exclude]
     if not feats:
@@ -274,6 +274,7 @@ def main():
     # Required
     CSV = os.getenv("WINNER_INPUT")
     OUTDIR = os.getenv("WINNER_OUTPUT_DIR")
+    MODEL_NAME = os.getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
 
     if not CSV or not OUTDIR:
         raise SystemExit("WINNER_INPUT and WINNER_OUTPUT_DIR must be set in .env")
@@ -282,7 +283,8 @@ def main():
 
     # Optional
     #FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
-    FEATURES        = BASE_FEATS + NEW_FEATS
+    #FEATURES        = BASE_FEATS + GEX_FEATS + NEW_FEATS
+    FEATURES        = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"]
     ID_COLS         = _parse_str_list(os.getenv("WINNER_ID_COLS"))
     TEST_SIZE       = float(os.getenv("WINNER_TEST_SIZE", "0.2"))
     RANDOM_STATE    = int(os.getenv("WINNER_RANDOM_STATE", "42"))
@@ -297,6 +299,7 @@ def main():
     WEIGHT_ALPHA    = float(os.getenv("WINNER_WEIGHT_ALPHA", "0.02"))
     WEIGHT_MIN      = float(os.getenv("WINNER_WEIGHT_MIN", "0.5"))
     WEIGHT_MAX      = float(os.getenv("WINNER_WEIGHT_MAX", "10.0"))
+    TRAIN_TARGET    = os.getenv("WINNER_TRAIN_TARGET", "return_mon").strip()
 
     TARGETS_RECALL    = _parse_list_env(os.getenv("WINNER_TARGET_RECALL", ""))
     TARGETS_PRECISION = _parse_list_env(os.getenv("WINNER_TARGET_PRECISION", ""))
@@ -304,10 +307,12 @@ def main():
     # Load
     df = pd.read_csv(CSV)
     df = _add_dte_and_normalized_returns(df)
+    if TRAIN_TARGET not in df.columns:
+        raise ValueError(f"Training target '{TRAIN_TARGET}' not found in DataFrame")
     df = shuffle(df, random_state=RANDOM_STATE)
 
     # Label
-    y = build_label(df)
+    y = build_label(df, TRAIN_TARGET)
 
     # Features
     feats = select_features(df, FEATURES, ID_COLS)
@@ -316,7 +321,7 @@ def main():
     wgt = None
     if USE_WEIGHTS:
         #ret = pd.to_numeric(df["return_pct"], errors="coerce").fillna(0.0)
-        ret = pd.to_numeric(df["return_mon"], errors="coerce").fillna(0.0)
+        ret = pd.to_numeric(df[TRAIN_TARGET], errors="coerce").fillna(0.0)
         wgt = 1.0 + WEIGHT_ALPHA * ret.abs()
         wgt = np.clip(wgt, WEIGHT_MIN, WEIGHT_MAX)
 
@@ -454,7 +459,7 @@ def main():
         }
     }
 
-    with open(os.path.join(OUTDIR, "ml_classifier_metrics.json"), "w") as f:
+    with open(os.path.join(OUTDIR, "winner_classifier_metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 
     # Save model pack (includes medians + thresholds table path)
@@ -467,15 +472,15 @@ def main():
         "metrics": metrics,
         "label": "return_pct > 0"
     }
-    joblib.dump(pack, os.path.join(OUTDIR, "model_pack.pkl"))
+    joblib.dump(pack, os.path.join(OUTDIR, MODEL_NAME))
 
     print(f"✅ Winner classifier trained. ROC AUC={roc_auc:.4f}, PR AUC={pr_auc:.4f}")
     print(f"Outputs saved in: {OUTDIR}")
     print(f"- precision_recall_coverage.csv")
     print(f"- precision_recall_coverage.png")
     print(f"- threshold_table.csv (requested targets)")
-    print(f"- ml_classifier_metrics.json")
-    print(f"- model_pack.pkl")
+    print(f"- winner_classifier_metrics.json")
+    print(f"- {MODEL_NAME}")
 
 if __name__ == "__main__":
     main()

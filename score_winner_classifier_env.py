@@ -5,6 +5,7 @@ score_winner_classifier_env.py — (refactored to use model_utils)
 import os, json, joblib, pandas as pd, numpy as np
 from pathlib import Path
 from service.utils import load_env_default, ensure_dir, prep_winner_like_training, pick_threshold_auto
+from train_tail_with_gex import _add_dte_and_normalized_returns
 
 
 
@@ -17,11 +18,14 @@ def pick_threshold_from_coverage(proba, coverage):
 def main():
     load_env_default()
 
-    CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
-    MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
+    #CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
+    CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("BASIC_CSV", "./candidates.csv"))
+    #MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
+    MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
     CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
     PROBA_COL = os.getenv("WINNER_PROBA_COL", "prob_winner")
     PRED_COL  = os.getenv("WINNER_PRED_COL", "pred_winner")
+    TRAIN_TARGET = os.getenv("WINNER_TRAIN_TARGET", "return_mon").strip()
 
     FIXED_THR = os.getenv("WINNER_SCORE_THRESHOLD", "")
     USE_PACK_F1 = str(os.getenv("WINNER_SCORE_USE_PACK_BEST_F1", "1")).lower() in {"1","true","yes","y","on"}
@@ -41,18 +45,22 @@ def main():
     best_f1_thr = float(pack.get("metrics", {}).get("best_f1_threshold", 0.5))
 
     df = pd.read_csv(CSV_IN)
+    df = _add_dte_and_normalized_returns(df)
 
     # Filter
     split_file = os.getenv("WINNER_SPLIT_FILE", "").strip()
+    split_file = os.path.join(os.getenv("WINNER_OUTPUT_DIR", "output"), split_file)
     if split_file:
         df_split = pd.read_csv(split_file)
+        if "tradeTime" in df_split.columns:
+            df_split["tradeTime"] = pd.to_datetime(df_split["tradeTime"], errors="coerce")
         df = df.merge(df_split, on=["symbol", "tradeTime"], how="left") 
-        if "return_pct_x" in df.columns:
-            df["return_pct"] = df["return_pct_x"]
-            df = df.drop(columns=["return_pct_x", "return_pct_y"])
-        if "daysToExpiration_x" in df.columns:
-            df["daysToExpiration"] = df["daysToExpiration_x"]
-            df = df.drop(columns=["daysToExpiration_x", "daysToExpiration_y"])
+        # deal with the columns with "_x" in df
+        col_x = [col for col in df.columns if col.endswith("_x")]
+        for col in col_x:
+            real_col = col[:-2]
+            df[real_col] = df[col]
+            df = df.drop(columns=[col, real_col+"_y"])
         # filter "is_train" == 0
         df = df[df["is_train"] == 0]
 
@@ -69,8 +77,8 @@ def main():
     if FIXED_THR.strip() != "":
         chosen_thr = float(FIXED_THR)
         thr_table = None
-    elif AUTO_CAL and ("return_pct" in out.columns) and (targets_prec or targets_rec):
-        y_true = (pd.to_numeric(out["return_pct"], errors="coerce") > 0).astype(int).values
+    elif AUTO_CAL and (TRAIN_TARGET in out.columns) and (targets_prec or targets_rec):
+        y_true = (pd.to_numeric(out[TRAIN_TARGET], errors="coerce") > 0).astype(int).values
         chosen_thr, thr_table = pick_threshold_auto(y_true, proba, targets_prec, targets_rec)
     elif USE_PACK_F1:
         chosen_thr = best_f1_thr
@@ -115,7 +123,7 @@ def main():
         thr_table.to_csv(thr_csv, index=False)
 
     print(f"[OK] Scored {len(out)} rows. Saved → {CSV_OUT}")
-    print(f"Threshold={chosen_thr:.6f}, coverage={summary['coverage']:.4f}")
+    print(f"Threshold={chosen_thr:.6f}, coverage={summary['coverage']:.4f} for target precision {targets_prec} or recall {targets_rec}")
 
 if __name__ == "__main__":
     main()
