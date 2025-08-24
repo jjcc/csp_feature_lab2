@@ -71,6 +71,10 @@ from sklearn.utils import shuffle
 from dotenv import load_dotenv
 import joblib
 
+from service.utils import BASE_FEATS, NEW_FEATS
+from train_tail_with_gex import _add_dte_and_normalized_returns
+from sklearn.inspection import permutation_importance
+
 
 # ---------- Helpers ----------
 
@@ -217,6 +221,53 @@ def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
 
     return pd.DataFrame(rows)
 
+def save_feature_importances(clf, X_test, y_test, feats, outdir):
+    """Save feature importances (model-based if available; else permutation). Also plot a bar chart."""
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    out_csv = os.path.join(outdir, "winner_feature_importances.csv")
+    out_png = os.path.join(outdir, "winner_feature_importances.png")
+
+    fi_df = None
+
+    # 1) Model-native importances (fast)
+    if hasattr(clf, "feature_importances_"):
+        fi = np.asarray(clf.feature_importances_, dtype=float)
+        fi_df = pd.DataFrame({"feature": feats, "importance": fi})
+        fi_df.sort_values("importance", ascending=False, inplace=True)
+
+    # 2) Fallback: permutation importance (robust, slower)
+    if fi_df is None:
+        try:
+            perm = permutation_importance(
+                clf, X_test, y_test, n_repeats=10, random_state=42, n_jobs=-1
+            )
+            fi_df = pd.DataFrame({"feature": feats, "importance": perm.importances_mean})
+            fi_df["importance_std"] = perm.importances_std
+            fi_df.sort_values("importance", ascending=False, inplace=True)
+        except Exception as e:
+            print(f"[WARN] Permutation importance failed: {e}")
+            return None
+
+    # Save CSV
+    fi_df.to_csv(out_csv, index=False)
+
+    # Plot (top 30 for readability)
+    top = fi_df.head(30).iloc[::-1]  # reverse for horizontal bar order
+    plt.figure(figsize=(8, max(6, 0.3 * len(top))))
+    plt.barh(top["feature"], top["importance"])
+    plt.xlabel("Importance")
+    plt.title("Winner Classifier — Feature Importance")
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=150)
+    plt.close()
+
+    return fi_df
+
+
 def main():
     load_dotenv()
 
@@ -230,7 +281,8 @@ def main():
     ensure_dir(OUTDIR)
 
     # Optional
-    FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
+    #FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
+    FEATURES        = BASE_FEATS + NEW_FEATS
     ID_COLS         = _parse_str_list(os.getenv("WINNER_ID_COLS"))
     TEST_SIZE       = float(os.getenv("WINNER_TEST_SIZE", "0.2"))
     RANDOM_STATE    = int(os.getenv("WINNER_RANDOM_STATE", "42"))
@@ -251,6 +303,7 @@ def main():
 
     # Load
     df = pd.read_csv(CSV)
+    df = _add_dte_and_normalized_returns(df)
     df = shuffle(df, random_state=RANDOM_STATE)
 
     # Label
@@ -262,7 +315,8 @@ def main():
     # Weights (optional)
     wgt = None
     if USE_WEIGHTS:
-        ret = pd.to_numeric(df["return_pct"], errors="coerce").fillna(0.0)
+        #ret = pd.to_numeric(df["return_pct"], errors="coerce").fillna(0.0)
+        ret = pd.to_numeric(df["return_mon"], errors="coerce").fillna(0.0)
         wgt = 1.0 + WEIGHT_ALPHA * ret.abs()
         wgt = np.clip(wgt, WEIGHT_MIN, WEIGHT_MAX)
 
@@ -317,6 +371,11 @@ def main():
     })
     pr_csv_path = os.path.join(OUTDIR, "precision_recall_coverage.csv")
     pr_df.to_csv(pr_csv_path, index=False)
+
+    # === NEW: Save feature importances ===
+    fi_df = save_feature_importances(clf, X_test, y_test, feats, OUTDIR)
+    fi_path = os.path.join(OUTDIR, "winner_feature_importances.csv")
+    fi_df.to_csv(fi_path, index=False)
 
     # save data with lable of test or not
    # === NEW: Save per-row probabilities with split labels ===
