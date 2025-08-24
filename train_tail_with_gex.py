@@ -109,25 +109,6 @@ LABEL_ON = os.getenv("LABEL_ON", "per_day").lower()  # raw | per_day | annualize
 DATE_COL = os.getenv("DATE_COL", "tradeTime")
 PRICE_COL = os.getenv("PRICE_COL", "underlyingLastPrice")
 
-def _prep_df(df: pd.DataFrame) -> pd.DataFrame:
-    # Keep parity with original prep, but allow injection of new features
-    for c in ("tradeTime","expirationDate"):
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors="coerce")
-    # Derive total_pnl if missing (bid/bidPrice & expiry intrinsic)
-    #if "total_pnl" not in df.columns:
-    if True: # recalculate total_pnl anyway
-        if "bid" not in df.columns and "bidPrice" in df.columns:
-            df["bid"] = df["bidPrice"]
-        bid_eff = df["bid"] if "bid" in df.columns else df["bidPrice"]
-        df["entry_credit"] = pd.to_numeric(bid_eff, errors="coerce").fillna(0.0) * 100.0
-        strike = pd.to_numeric(df["strike"], errors="coerce")
-        expiry_close = pd.to_numeric(df["expiry_close"], errors="coerce")
-        df["exit_intrinsic"] = np.maximum(strike - expiry_close, 0.0) * 100.0
-        df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
-        capital = pd.to_numeric(df["strike"], errors="coerce") * 100.0
-        df["return_pct"] = 100.0 * df["total_pnl"] / capital
-    return df
 
 def _add_dte_and_normalized_returns(df):
     d = df.copy()
@@ -174,10 +155,18 @@ def main():
     # 2) Feature list: original + new (present only if computed)
     #{'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
     # NEW_FEATS = ["VIX", "ret_2d_norm", "ret_5d_norm",'prev_close_minus_strike_pct','log1p_DTE']
-    feat_list = list(BASE_FEATS + GEX_FEATS + NEW_FEATS)  # copy
-    #for nf in NEW_FEATS:
-    #    if nf in df.columns:
-    #        feat_list.append(nf)
+    #feat_list = list(BASE_FEATS + GEX_FEATS + NEW_FEATS)  # copy
+    # use lean features after analysis
+    LEAN_FEATS = [
+        "potentialReturnAnnual", "VIX", "impliedVolatilityRank1y",
+        "ret_2d_norm", "ret_5d_norm",
+        "log1p_DTE", "daysToExpiration",
+        "underlyingLastPrice",
+        "gex_center_abs_strike", "gex_pos", "gex_gamma_at_ul",
+        "potentialReturn",
+        "prev_close_minus_strike_pct" 
+    ]
+    feat_list = LEAN_FEATS
 
     # 3) Build X and label tails by return_pct quantile
     Xdf, medians = _fill_features(df, feat_list)
