@@ -43,7 +43,8 @@ GEX_FEATS = [
 ]
 
 #{'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
-NEW_FEATS = ["VIX", "ret_2d_norm", "ret_5d_norm",'prev_close_minus_strike_pct','log1p_DTE']
+NEW_FEATS = ["VIX", "ret_2d_norm", "ret_5d_norm",'prev_close_minus_ul_pct','log1p_DTE']
+#NEW_FEATS = ["VIX", "ret_2d_norm", "ret_5d_norm",'prev_close_minus_ul_pct','log1p_DTE', 'dow','is_expiry_day','is_expiry_minus_1']
 
 ALL_FEATS = BASE_FEATS + GEX_FEATS + NEW_FEATS
 # ---------- FS / ENV helpers ----------

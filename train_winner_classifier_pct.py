@@ -72,7 +72,7 @@ from dotenv import load_dotenv
 import joblib
 
 from service.utils import BASE_FEATS, GEX_FEATS, NEW_FEATS
-from train_tail_with_gex import _add_dte_and_normalized_returns
+from service.preprocess import add_dte_and_normalized_returns
 from sklearn.inspection import permutation_importance
 
 
@@ -306,7 +306,7 @@ def main():
 
     # Load
     df = pd.read_csv(CSV)
-    df = _add_dte_and_normalized_returns(df)
+    df = add_dte_and_normalized_returns(df)
     if TRAIN_TARGET not in df.columns:
         raise ValueError(f"Training target '{TRAIN_TARGET}' not found in DataFrame")
     df = shuffle(df, random_state=RANDOM_STATE)

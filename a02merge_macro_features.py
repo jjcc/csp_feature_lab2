@@ -82,11 +82,14 @@ def _per_symbol_feature_frame(s_px):
     # Align to business days and forward-fill to avoid holes
     daily = s_px.asfreq("B").ffill()
     ret1d = daily.pct_change()
+    ret1d_lag = ret1d.shift(1)
+
     df = pd.DataFrame(index=daily.index)
     df["prev_close"] = daily.shift(1)  # yesterday's close (no leakage)
-    df["ret_2d"] = ret1d.rolling(2, min_periods=2).sum()
-    df["ret_5d"] = ret1d.rolling(5, min_periods=5).sum()
-    vol20 = ret1d.rolling(20, min_periods=5).std()
+    # Windows that now end at t-1 (no trade-day leakage)
+    df["ret_2d"] = ret1d_lag.rolling(2, min_periods=2).sum()
+    df["ret_5d"] = ret1d_lag.rolling(5, min_periods=5).sum()
+    vol20 = ret1d_lag.rolling(20, min_periods=5).std()
     df["ret_2d_norm"] = df["ret_2d"] / vol20.replace(0, np.nan)
     df["ret_5d_norm"] = df["ret_5d"] / vol20.replace(0, np.nan)
     return df
@@ -158,14 +161,13 @@ def main():
     px_feat.rename(columns={"Date": "trade_date"}, inplace=True)
     d = d.merge(px_feat, on=["trade_date","baseSymbol"], how="left")
 
-    # Gap between previous close and current strike
-    # (prev_close is yesterday’s close aligned to trade_date; strike is row-specific)
-    if "strike" in d.columns:
-        d["prev_close_minus_strike"] = d["prev_close"] - d["strike"]
-        d["prev_close_minus_strike_pct"] = (d["prev_close"] - d["strike"]) / d["strike"].replace(0, np.nan)
+    # Gap between previous close and current underlying price
+    if "underlyingLastPrice" in d.columns:
+        d["prev_close_minus_ul"] = d["prev_close"] - d["underlyingLastPrice"]
+        d["prev_close_minus_ul_pct"] = (d["prev_close"] - d["underlyingLastPrice"]) / d["underlyingLastPrice"].replace(0, np.nan)
     else:
-        d["prev_close_minus_strike"] = np.nan
-        d["prev_close_minus_strike_pct"] = np.nan
+        d["prev_close_minus_ul"] = np.nan
+        d["prev_close_minus_ul_pct"] = np.nan
 
     # Save
     d.to_csv(out_csv, index=False)
