@@ -69,6 +69,7 @@ Notes:
 import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
 from service.utils import BASE_FEATS, GEX_FEATS, NEW_FEATS, prep_tail_training_df, ALL_FEATS
+from service.preprocess import add_dte_and_normalized_returns
 
 # Load .env (robustly try CWD and script dir)
 def _load_env():
@@ -110,22 +111,6 @@ DATE_COL = os.getenv("DATE_COL", "tradeTime")
 PRICE_COL = os.getenv("PRICE_COL", "underlyingLastPrice")
 
 
-def _add_dte_and_normalized_returns(df):
-    d = df.copy()
-    for c in ("tradeTime","expirationDate"):
-        if c in d.columns:
-            d[c] = pd.to_datetime(d[c], errors="coerce")
-
-    # The field daysToExpiration is supposed to exist
-    #d["daysToExpiration"] = ((d["expirationDate"].dt.floor("D") - d["tradeTime"].dt.floor("D"))
-    #                          .dt.days.clip(lower=1))
-    #d["log1p_DTE"] = np.log1p(d["daysToExpiration"].astype(float))
-
-    d["return_per_day"] = d["return_pct"] / d["daysToExpiration"].replace(0, 1)
-    #d["return_ann"] = ((1.0 + d["return_pct"] / 100.0) ** (365.0 / d["daysToExpiration"]) - 1.0) * 100.0
-    d["return_ann"] =d["return_pct"] * 365.0 / d["daysToExpiration"].replace(0, 1)
-    d["return_mon"] =d["return_pct"] * 30.0 / d["daysToExpiration"].replace(0, 1)
-    return d
 
 def _fill_features(df: pd.DataFrame, feat_list):
     medians = {}
@@ -150,7 +135,7 @@ def main():
     # Use project utility for canonical prep (matches user's v1), then enrich.
     df = prep_tail_training_df(df).dropna(subset=["total_pnl"]).sort_values("tradeTime").reset_index(drop=True)
     #df = _build_macro_micro_features(df)
-    df = _add_dte_and_normalized_returns(df)
+    df = add_dte_and_normalized_returns(df)
 
     # 2) Feature list: original + new (present only if computed)
     #{'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}

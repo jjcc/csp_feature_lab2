@@ -217,3 +217,25 @@ def pick_closest_file(files, target_minutes: int):
         if dist < best_dist:
             best = p; best_dist = dist
     return best
+
+
+def add_dte_and_normalized_returns(df):
+    """
+    Add DTE and normalized returns to the dataframe.
+    Originally from train_tail_with_gex.py
+    """
+    d = df.copy()
+    for c in ("tradeTime","expirationDate"):
+        if c in d.columns:
+            d[c] = pd.to_datetime(d[c], errors="coerce")
+
+    # The field daysToExpiration is supposed to exist
+    #d["daysToExpiration"] = ((d["expirationDate"].dt.floor("D") - d["tradeTime"].dt.floor("D"))
+    #                          .dt.days.clip(lower=1))
+    #d["log1p_DTE"] = np.log1p(d["daysToExpiration"].astype(float))
+
+    d["return_per_day"] = d["return_pct"] / d["daysToExpiration"].replace(0, 1)
+    #d["return_ann"] = ((1.0 + d["return_pct"] / 100.0) ** (365.0 / d["daysToExpiration"]) - 1.0) * 100.0
+    d["return_ann"] =d["return_pct"] * 365.0 / d["daysToExpiration"].replace(0, 1)
+    d["return_mon"] =d["return_pct"] * 30.0 / d["daysToExpiration"].replace(0, 1)
+    return d
