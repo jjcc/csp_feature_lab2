@@ -10,6 +10,8 @@ from pyparsing import Path
 from dotenv import load_dotenv
 import json
 
+from sklearn.metrics import average_precision_score, roc_auc_score
+
 from service.utils import fill_features_with_training_medians, prep_tail_training_df, prep_winner_like_training
 
 load_dotenv()
@@ -28,7 +30,8 @@ base_dir = os.getenv("GEX_BASE_DIR")
 
 TAIL_MODEL_IN="models/tail_model_gex_v2_cut05.pkl"
 TAIL_KEEP_PROBA_COL="tail_proba"
-WINNER_MODEL_IN="output/winner/model_pack.pkl"
+# winner classifier
+WINNER_MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
 WINNER_PROBA_COL = "proba"
 
 def parse_target_time(s: str) -> time:
@@ -73,6 +76,63 @@ class TestScore(unittest.TestCase):
         # Test evaluating tails gate
 
 
+    def test_compare_score_against_train(self):
+        """
+        Compare the score result  against training result. Both on test dataset
+        scored dataset column 
+        'symbol', 'baseSymbol', 'tradeTime', 'win',  'return_ann', 'row_idx', 'proba', 'label', 'is_train','return_pct', 'return_mon'
+
+        training dataset column
+        'row_idx', 'proba', 'label', 'is_train', 'symbol', 'tradeTime', 'return_pct', 'return_mon', 'daysToExpiration'
+
+        """
+        SCORE_FILE = "output/winner_score/scores_winner.csv"
+        TRAIN_FILE = f'{os.getenv("WINNER_OUTPUT_DIR")}/winner_scores_split.csv'
+        df_scored = pd.read_csv(SCORE_FILE)
+        df_trained = pd.read_csv(TRAIN_FILE)
+
+        df_scored_reduced = df_scored[['symbol', 'baseSymbol', 'tradeTime', 'win',  'return_ann', 'row_idx', 'proba', 'label', 'is_train','return_pct', 'return_mon']]
+        df_trained_test = df_trained[df_trained['is_train']==0]
+        df_scored_reduced.to_csv("test/data/output/df_winner_scored_reduced.csv", index=False)
+
+
+
+        assert len(df_scored_reduced) == len(df_trained_test)
+        pass
+
+    def test_winner_classifier_training_test(self):
+        """
+        Use dumped X_test to get predictions on the training set
+        """
+        model_pack = joblib.load(WINNER_MODEL_IN)
+        clf = model_pack["model"]
+
+        X_test_file = "output/diag/X_test_in_training.csv"
+        y_test_file = "output/diag/ytest.csv"
+        y_proba_saved_file = "output/diag/y_prob_test.json"
+        # use dumped X_test as input to get y_prob
+        X_test = pd.read_csv(X_test_file, index_col=0)
+        y_test = pd.read_csv(y_test_file, index_col=0)
+        # drop  Unnamed: 0 column
+        #X_test = X_test.drop(columns=['Unnamed: 0'], errors='ignore')
+        #y_test = y_test.drop(columns=['Unnamed: 0'], errors='ignore')
+        print("#####")
+
+
+        y_proba = clf.predict_proba(X_test)[:,1]
+
+        roc_auc = roc_auc_score(y_test, y_proba)
+        pr_auc = average_precision_score(y_test, y_proba)
+        print(f"Winner classifier on training test set: ROC AUC = {roc_auc}, PR AUC = {pr_auc}")
+
+
+        with open(y_proba_saved_file, "r") as f:
+            y_proba_saved = json.load(f)
+        roc_auc = roc_auc_score(y_test, y_proba_saved)
+        pr_auc = average_precision_score(y_test, y_proba_saved)
+        print(f"Use dumped proba: ROC AUC = {roc_auc}, PR AUC = {pr_auc}")
+
+
     def test_score_winner_classifier(self):
         data_date = "2025-08-12"
         CSV_IN = f"test/data/output/merged_test_{data_date}.csv"
@@ -96,7 +156,7 @@ class TestScore(unittest.TestCase):
 
     # Test both
     def test_score_tail_winner_classifier(self):
-        data_date = "2025-08-11"
+        data_date = "2025-08-08"
         CSV_IN = f"test/data/output/merged_test_{data_date}.csv"
 
         df_o = pd.read_csv(CSV_IN)

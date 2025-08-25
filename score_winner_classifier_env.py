@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 """
-score_winner_classifier_env.py — (refactored to use model_utils)
+score_winner_classifier_env.py
+
+Score the input data using the winner classifier model.
+
+Note:
+Why I need score_winner_classifier_env.py?
+This script  scores data using the winner classifier model separately. With another evaluation script I can compare the seperate scoring functions
+behave the same way as the training so the training performance report is applicable to another separate scoring function in this script.
+ *(refactored to use model_utils)
 """
 import os, json, joblib, pandas as pd, numpy as np
 from pathlib import Path
+
+from sklearn.metrics import average_precision_score, roc_auc_score
 from service.utils import load_env_default, ensure_dir, prep_winner_like_training, pick_threshold_auto
 from train_tail_with_gex import _add_dte_and_normalized_returns
 
@@ -19,7 +29,8 @@ def main():
     load_env_default()
 
     #CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
-    CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("BASIC_CSV", "./candidates.csv"))
+    #CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("MACRO_FEATURE_CSV", "./candidates.csv"))
+    CSV_IN  =  os.getenv("MACRO_FEATURE_CSV", "./candidates.csv")
     #MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
     MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
     CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
@@ -46,11 +57,15 @@ def main():
 
     df = pd.read_csv(CSV_IN)
     df = _add_dte_and_normalized_returns(df)
+    if "tradeTime" in df.columns:
+        df["tradeTime"] = pd.to_datetime(df["tradeTime"], errors="coerce")
 
     # Filter
     split_file = os.getenv("WINNER_SPLIT_FILE", "").strip()
     split_file = os.path.join(os.getenv("WINNER_OUTPUT_DIR", "output"), split_file)
     if split_file:
+        if not os.path.isfile(split_file):
+            raise FileNotFoundError(f"WINNER_SPLIT_FILE not found: {split_file}")
         df_split = pd.read_csv(split_file)
         if "tradeTime" in df_split.columns:
             df_split["tradeTime"] = pd.to_datetime(df_split["tradeTime"], errors="coerce")
@@ -72,6 +87,13 @@ def main():
     proba = clf.predict_proba(X)[:,1]
     out = df.loc[mask].copy()
     out[PROBA_COL] = proba
+
+    y = None
+    if TRAIN_TARGET in out.columns:
+        y = (pd.to_numeric(out[TRAIN_TARGET], errors="coerce") > 0).astype(int).values
+    elif "win" in out.columns:
+        y = out["win"].astype(int).values
+
 
     # Threshold selection
     if FIXED_THR.strip() != "":
@@ -97,14 +119,13 @@ def main():
     if WRITE_SWEEP:
         coverages = [0.10,0.20,0.30,0.40,0.50,0.60,0.70]
         rows = []
-        y = df["win"].values if "win" in df.columns else None
         for cov in coverages:
             thr = pick_threshold_from_coverage(proba, cov)
             mask = proba >= thr
             row = {"coverage": cov, "threshold": thr, "n": int(mask.sum())}
             if y is not None:
                 row["precision_est"] = float(y[mask].mean()) if mask.any() else np.nan
-                row["recall_est"] = float((y[mask]==1).sum()/max(1,(y==1).sum())) if (y==1).any() else np.nan
+                row["recall_est"] = float((y[mask]==1).sum()/max(1,(y==1).sum()))
             rows.append(row)
         pd.DataFrame(rows).to_csv(OUT_SCORED.replace("_scored.csv", "_threshold_sweep.csv"), index=False)
 
