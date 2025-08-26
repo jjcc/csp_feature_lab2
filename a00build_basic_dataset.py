@@ -31,7 +31,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, mean_absolute_error, mean_squared_error
 from service.preprocess import load_csp_files 
 
-from dotenv import load_dotenv;
+from service.utils import download_prices_batched;
+from dotenv import load_dotenv
 load_dotenv()
 
 def ensure_cache_dir(out_dir):
@@ -39,59 +40,29 @@ def ensure_cache_dir(out_dir):
     os.makedirs(pc, exist_ok=True)
     return pc
 
-def load_cached_price_data(cache_dir, symbol):
+def load_cached_price_data(cache_dir, symbol, check_time = None):
     p = os.path.join(cache_dir, f"{symbol}.parquet")
+    check_time = check_time.replace(hour=0, minute=0, second=0, microsecond=0) if check_time is not None else None
     if os.path.exists(p):
         try:
             df = pd.read_parquet(p)
             df.index = pd.to_datetime(df.index)
-            return df
+            if check_time is not None:
+                # compare max date in df with check_time
+                if df.index.max() >=  check_time:
+                    return df, True
+                else:
+                    return df, False
+            return df, True
         except Exception as e:
             print(f"[WARN] cache read failed for {symbol}: {e}")
-    return None
+    return None, False
 
 def save_cached_price_data(cache_dir, symbol, price_df: pd.DataFrame):
     try:
         price_df.to_parquet(os.path.join(cache_dir, f"{symbol}.parquet"))
     except Exception as e:
         print(f"[WARN] cache write failed for {symbol}: {e}")
-
-def download_prices_batched(symbols, start_dt, end_dt, batch_size=30, threads=True):
-    """
-    Download daily OHLCV prices for many symbols in batches using yfinance.
-    Returns dict: symbol -> pd.DataFrame (Open, High, Low, Close, Volume, etc.)
-    """
-    import yfinance as yf
-    import math
-    symbols = sorted(set([s for s in symbols if isinstance(s, str) and len(s)>0]))
-    symbols = [s if "." not in s else s.replace(".", "_") for s in symbols]  # ensure uppercase
-    out = {}
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i:i+batch_size]
-        try:
-            df = yf.download(batch, start=start_dt.date(), end=(end_dt + pd.Timedelta(days=1)).date(),
-                             interval="1d", group_by="ticker", auto_adjust=False, threads=threads, progress=False)
-            # yfinance returns multi-index columns when multiple tickers
-            if isinstance(df.columns, pd.MultiIndex):
-                # df columns like ('AAPL','Open'), ('AAPL','High'), ('AAPL','Low'), ('AAPL','Close'), etc.
-                for sym in batch:
-                    sym_cols = [col for col in df.columns if col[0] == sym]
-                    if sym_cols:
-                        sym_df = df[[col for col in sym_cols]]
-                        # Flatten column names: ('AAPL', 'Close') -> 'Close'
-                        sym_df.columns = [col[1] for col in sym_df.columns]
-                        sym_df = sym_df.dropna(how='all')
-                        sym_df.index = pd.to_datetime(sym_df.index)
-                        out[sym] = sym_df
-            else:
-                # single ticker case - df already has columns like 'Open', 'High', 'Low', 'Close', etc.
-                df = df.dropna(how='all')
-                df.index = pd.to_datetime(df.index)
-                out[batch[0]] = df
-        except Exception as e:
-            print(f"[WARN] batch download failed for {batch}: {e}")
-        sleep(1)  # avoid hitting API limits
-    return out
 
 def preload_prices_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None):
     """
@@ -126,7 +97,7 @@ def preload_prices_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None)
     prices = {}
     missing = []
     for s in syms:
-        price_df = load_cached_price_data(cache_dir, s)
+        price_df, _ = load_cached_price_data(cache_dir, s)
         if price_df is not None and (price_df.index.min() <= start_dt) and (price_df.index.max() >= end_dt):
             prices[s] = price_df
         else:

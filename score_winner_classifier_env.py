@@ -15,7 +15,8 @@ from pathlib import Path
 
 from sklearn.metrics import average_precision_score, roc_auc_score
 from service.utils import load_env_default, ensure_dir, prep_winner_like_training, pick_threshold_auto
-from train_tail_with_gex import _add_dte_and_normalized_returns
+from service.preprocess import add_dte_and_normalized_returns
+
 
 
 
@@ -29,8 +30,8 @@ def main():
     load_env_default()
 
     #CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
-    #CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("MACRO_FEATURE_CSV", "./candidates.csv"))
-    CSV_IN  =  os.getenv("MACRO_FEATURE_CSV", "./candidates.csv")
+    CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("MACRO_FEATURE_CSV", "./candidates.csv"))
+    #CSV_IN  =  os.getenv("MACRO_FEATURE_CSV", "./candidates.csv")
     #MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
     MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
     CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
@@ -56,7 +57,7 @@ def main():
     best_f1_thr = float(pack.get("metrics", {}).get("best_f1_threshold", 0.5))
 
     df = pd.read_csv(CSV_IN)
-    df = _add_dte_and_normalized_returns(df)
+    df = add_dte_and_normalized_returns(df)
     if "tradeTime" in df.columns:
         df["tradeTime"] = pd.to_datetime(df["tradeTime"], errors="coerce")
 

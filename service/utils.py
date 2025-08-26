@@ -19,8 +19,10 @@ Additions:
   (create missing cols; gex_missing:=1 when NaN; other NaNs -> training medians)
 """
 
+import glob
 import os
 from pathlib import Path
+from time import sleep
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -210,3 +212,63 @@ def get_features_rg(df: pd.DataFrame, feature_list: str):
         if not feats:
             raise ValueError("No valid features from FEATURES env var found in CSV.")
     return feats
+
+
+def get_symbols_last_few_days(folder, end_date, days=5):
+    days_including_wkd = days + 2
+    dates = pd.date_range(end=end_date, periods=days_including_wkd).to_pydatetime().tolist()
+    dates = [d for d in dates if d.weekday() < 5]
+    date_strs = [d.strftime("%Y-%m-%d") for d in dates ]
+    files = []
+    for d in date_strs:
+        pattern = f"coveredPut_{d}*.csv"
+        paths = glob.glob(os.path.join(folder, pattern))
+        files.extend(paths)
+        files = sorted(files)
+    if len(files) == 0:
+        print(f"No files found for last 5 trading days up to {end_date}.")
+        return
+    df = pd.DataFrame()
+    for f in files:
+        temp_df = pd.read_csv(f)
+        df = pd.concat([df, temp_df], ignore_index=True)
+    symbols = df['baseSymbol'].unique().tolist()
+    return files,symbols
+
+
+def download_prices_batched(symbols, start_dt, end_dt, batch_size=30, threads=True):
+    """
+    Download daily OHLCV prices for many symbols in batches using yfinance.
+    Returns dict: symbol -> pd.DataFrame (Open, High, Low, Close, Volume, etc.)
+    """
+    import yfinance as yf
+    import math
+    symbols = sorted(set([s for s in symbols if isinstance(s, str) and len(s)>0]))
+    symbols = [s if "." not in s else s.replace(".", "_") for s in symbols]  # ensure uppercase
+    out = {}
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i+batch_size]
+        try:
+            df = yf.download(batch, start=start_dt.date(), end=(end_dt + pd.Timedelta(days=1)).date(),
+                             interval="1d", group_by="ticker", auto_adjust=False, threads=threads, progress=False)
+            # yfinance returns multi-index columns when multiple tickers
+            if isinstance(df.columns, pd.MultiIndex):
+                # df columns like ('AAPL','Open'), ('AAPL','High'), ('AAPL','Low'), ('AAPL','Close'), etc.
+                for sym in batch:
+                    sym_cols = [col for col in df.columns if col[0] == sym]
+                    if sym_cols:
+                        sym_df = df[[col for col in sym_cols]]
+                        # Flatten column names: ('AAPL', 'Close') -> 'Close'
+                        sym_df.columns = [col[1] for col in sym_df.columns]
+                        sym_df = sym_df.dropna(how='all')
+                        sym_df.index = pd.to_datetime(sym_df.index)
+                        out[sym] = sym_df
+            else:
+                # single ticker case - df already has columns like 'Open', 'High', 'Low', 'Close', etc.
+                df = df.dropna(how='all')
+                df.index = pd.to_datetime(df.index)
+                out[batch[0]] = df
+        except Exception as e:
+            print(f"[WARN] batch download failed for {batch}: {e}")
+        sleep(1)  # avoid hitting API limits
+    return out
