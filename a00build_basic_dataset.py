@@ -176,7 +176,7 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     """
     Prepare labeled dataset for modeling.
     Assumes columns (case-sensitive): 
-      baseSymbol, expirationDate, strike, bid, ask, delta, moneyness, impliedVolatilityRank1y, 
+      baseSymbol, expirationDate, strike,  delta, moneyness, impliedVolatilityRank1y, 
       potentialReturn, potentialReturnAnnual, breakEvenProbability, percentToBreakEvenBid,
       openInterest, volume, tradeTime, underlyingLastPrice
     Missing columns are tolerated and filled with NaN.
@@ -184,7 +184,7 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     df = raw.copy()
     # Standardize expected columns
     expected_cols = [
-        "baseSymbol","expirationDate","strike","bid","ask","delta","moneyness",
+        "baseSymbol","expirationDate","strike","delta","moneyness",
         "impliedVolatilityRank1y","potentialReturn","potentialReturnAnnual",
         "breakEvenProbability","percentToBreakEvenBid","openInterest","volume",
         "tradeTime","underlyingLastPrice","__source_file"
