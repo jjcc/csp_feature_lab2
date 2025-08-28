@@ -115,6 +115,10 @@ def stock_price_update(test = False):
         # save the prices
         for s, price_df in fetched.items():
             save_cached_price_data(cache_dir, s, price_df)
+    with open("../logs/price_update.log","a") as f:
+        f.write(f"### Price update done at {datetime.now()} with update {len(to_update)}, reload: {len(to_reload)}\n")
+        f.write(f"To update: {to_update}\n")
+        f.write(f"To reload: {to_reload}\n")
 
 def main():
     stock_price_update()

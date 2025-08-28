@@ -3,8 +3,8 @@ import joblib
 import pandas as pd
 from a00build_basic_dataset import download_prices_batched, ensure_cache_dir, save_cached_price_data
 from daily_stock_update import preload_prices_with_cache_by_time
-from service.utils import get_symbols_last_few_days, prep_tail_training_df, fill_features_with_training_medians
-import glob, os
+from service.utils import get_symbols_last_few_days, fill_features_with_training_medians
+import os
 
 
 
@@ -64,6 +64,15 @@ class TestPrepare(unittest.TestCase):
         stock_price_update(True)
 
         pass
+    
+    def test_get_vix(self):
+        # First install: pip install vix-utils
+        from vix_utils import get_vix_index_histories
+        
+        # Get current VIX cash data
+        vix_data = get_vix_index_histories()
+        current_vix = vix_data.iloc[-1]['Close']
+        print(f"Current VIX: {current_vix:.2f}")
 
 
 if __name__ == '__main__':

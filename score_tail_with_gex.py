@@ -16,7 +16,7 @@ def main():
     load_env_default()
 
     CSV_IN  = os.getenv("TAIL_SCORE_INPUT", "./new_trades_with_gex.csv")
-    MODEL_IN= os.getenv("TAIL_MODEL_IN", "./tail_model_gex_v1.pkl")
+    MODEL_IN= os.getenv("TAIL_MODEL_OUT", "./tail_model_gex_v1.pkl") # use the output of training
     CSV_OUT = os.getenv("TAIL_SCORE_OUT", "./scores_tail.csv")
     PROBA_COL = os.getenv("TAIL_KEEP_PROBA_COL", "tail_proba")
     PRED_COL  = os.getenv("TAIL_PRED_COL", "is_tail_pred")

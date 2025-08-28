@@ -94,10 +94,10 @@ from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 
 # --- Config ---
 CSV_INPUT = os.getenv("OUTPUT_DIR") + "/" + os.getenv("MACRO_FEATURE_CSV", "/mnt/data/labeled_trades_with_gex.csv")
-MODEL_OUT = os.getenv("MODEL_OUT", "/mnt/data/tail_model_gex_v1_plus.pkl")
-IMP_OUT = os.getenv("IMP_OUT", "/mnt/data/tail_gex_v1_plus_feature_importances.csv")
-SCORES_OUT = os.getenv("SCORES_OUT", "/mnt/data/tail_gex_v1_plus_scores_oof.csv")
-METRICS_OUT = os.getenv("METRICS_OUT", "/mnt/data/tail_train_metrics_v1_plus.json")
+MODEL_OUT = os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_MODEL_OUT", "/mnt/data/tail_model_gex_v1_plus.pkl")
+IMP_OUT = os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_IMP_OUT", "/mnt/data/tail_gex_v1_plus_feature_importances.csv")
+SCORES_OUT = os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_SCORES_OUT", "/mnt/data/tail_gex_v1_plus_scores_oof.csv")
+METRICS_OUT = os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_METRICS_OUT", "/mnt/data/tail_train_metrics_v1_plus.json")
 SAVE_SCORES_SAMPLE = int(os.getenv("SAVE_SCORES_SAMPLE", "20000"))
 
 TAIL_PCT = float(os.getenv("TAIL_PCT", "0.03"))
@@ -139,8 +139,7 @@ def main():
 
     # 2) Feature list: original + new (present only if computed)
     #{'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
-    # NEW_FEATS = ["VIX", "ret_2d_norm", "ret_5d_norm",'prev_close_minus_strike_pct','log1p_DTE']
-    #feat_list = list(BASE_FEATS + GEX_FEATS + NEW_FEATS)  # copy
+    # feat_list = list(BASE_FEATS + GEX_FEATS + NEW_FEATS)  # copy
     # use lean features after analysis
     LEAN_FEATS = [
         "potentialReturnAnnual", "VIX", "impliedVolatilityRank1y",
@@ -220,8 +219,9 @@ def main():
     clf_all.fit(X, y)
 
     # 7) Save artifacts
-    for p in [MODEL_OUT, IMP_OUT, SCORES_OUT, METRICS_OUT]:
-        Path(p).parent.mkdir(parents=True, exist_ok=True)
+    path = os.getenv("TAIL_OUT_DIR", "output/tails_train")
+    os.makedirs(path, exist_ok=True)
+
 
     joblib.dump({
         "model": clf_all,
@@ -241,9 +241,23 @@ def main():
         .sort_values("importance", ascending=False) \
         .to_csv(IMP_OUT, index=False)
 
+    # for rescue model
+    ENHANCE = True
     if SAVE_SCORES_SAMPLE > 0:
-        cols = ["baseSymbol","tradeTime","expirationDate","strike","total_pnl",
-                "return_pct","return_per_day","return_ann","daysToExpiration"]
+        for col in ["return_pct","return_per_day","return_mon","return_ann", "total_pnl"]:
+            df[col] = df[col].astype(float)
+            df[col] = df[col].round(3)
+        cols = ["baseSymbol","tradeTime","expirationDate","strike","potentialReturnAnnual", "total_pnl",
+                "return_pct","return_per_day","return_mon","return_ann","daysToExpiration"]
+        if ENHANCE:
+            extra_col = [  "VIX","ret_2d_norm","ret_5d_norm",
+              "gex_gamma_at_ul","gex_total_abs","gex_neg","gex_flip_strike","gex_distance_to_flip","gex_missing",
+              "prev_close_minus_strike","percentToBreakEvenBid","moneyness","delta","gex_center_abs_strike",
+              "openInterest","volume","log1p_DTE",
+              "underlyingLastPrice","bidPrice",
+              "impliedVolatilityRank1y"
+	        ]
+            cols = cols + extra_col
         have = [c for c in cols if c in df.columns]
         oof_df = df[have].copy()
         oof_df["tail_proba_oof"] = oof
