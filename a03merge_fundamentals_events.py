@@ -109,24 +109,64 @@ def _merge_next_prev_earnings(trades: pd.DataFrame, earnings: pd.DataFrame, symb
     t[trade_date_col] = pd.to_datetime(t[trade_date_col], errors="coerce", utc=True).dt.tz_localize(None)
     if t[trade_date_col].isna().any():
         raise ValueError("Some trade_date values invalid")
+    
+    # Drop any rows with NaN in symbol or trade_date columns
+    t = t.dropna(subset=[symbol_col, trade_date_col])
     t = t.sort_values([symbol_col, trade_date_col]).reset_index(drop=True)
+    
     e = earnings.copy().sort_values(["symbol","earnings_date"]).reset_index(drop=True)
-    e.rename(columns={"symbol":symbol_col}, inplace=True)
-    # next earnings
-    # Next earnings (forward)
-    next_e = pd.merge_asof(
-        t,
-        e.rename(columns={"earnings_date":"next_earnings_date"}),
-        left_on=trade_date_col, right_on="next_earnings_date",
-        by=symbol_col, direction="forward", allow_exact_matches=True
-    )
-    # Previous earnings (backward)
-    prev_e = pd.merge_asof(
-        t[[symbol_col,trade_date_col]].sort_values([symbol_col,trade_date_col]),
-        e.rename(columns={"earnings_date":"prev_earnings_date"}),
-        left_on=trade_date_col, right_on="prev_earnings_date",
-        by=symbol_col, direction="backward", allow_exact_matches=True
-    )
+    
+    # Prepare earnings data for next earnings lookup
+    e_next = e.rename(columns={"symbol": symbol_col, "earnings_date": "next_earnings_date"})
+    e_next = e_next.dropna(subset=[symbol_col, "next_earnings_date"])
+    e_next = e_next.sort_values([symbol_col, "next_earnings_date"]).reset_index(drop=True)
+    
+    # Prepare earnings data for previous earnings lookup  
+    e_prev = e.rename(columns={"symbol": symbol_col, "earnings_date": "prev_earnings_date"})
+    e_prev = e_prev.dropna(subset=[symbol_col, "prev_earnings_date"])
+    e_prev = e_prev.sort_values([symbol_col, "prev_earnings_date"]).reset_index(drop=True)
+    
+    # For merge_asof with 'by' parameter, we need to sort by the 'by' column first
+    t_sorted = t.sort_values([symbol_col, trade_date_col]).reset_index(drop=True)
+    
+    # Next earnings (forward) - do the merge without 'by' parameter to avoid sorting issues
+    results = []
+    for symbol in t_sorted[symbol_col].unique():
+        t_sym = t_sorted[t_sorted[symbol_col] == symbol].sort_values(trade_date_col)
+        e_sym = e_next[e_next[symbol_col] == symbol][["next_earnings_date"]].sort_values("next_earnings_date")
+        
+        if len(e_sym) > 0:
+            merged = pd.merge_asof(
+                t_sym, e_sym,
+                left_on=trade_date_col, right_on="next_earnings_date",
+                direction="forward", allow_exact_matches=True
+            )
+        else:
+            merged = t_sym.copy()
+            merged["next_earnings_date"] = pd.NaT
+        results.append(merged)
+    
+    next_e = pd.concat(results, ignore_index=True) if results else t_sorted.copy()
+    
+    # Previous earnings (backward) - same approach
+    results = []
+    for symbol in t_sorted[symbol_col].unique():
+        t_sym = t_sorted[t_sorted[symbol_col] == symbol][[symbol_col, trade_date_col]].sort_values(trade_date_col)
+        e_sym = e_prev[e_prev[symbol_col] == symbol][["prev_earnings_date"]].sort_values("prev_earnings_date")
+        
+        if len(e_sym) > 0:
+            merged = pd.merge_asof(
+                t_sym, e_sym,
+                left_on=trade_date_col, right_on="prev_earnings_date",
+                direction="backward", allow_exact_matches=True
+            )
+        else:
+            merged = t_sym.copy()
+            merged["prev_earnings_date"] = pd.NaT
+        results.append(merged)
+    
+    prev_e = pd.concat(results, ignore_index=True) if results else t_sorted[[symbol_col, trade_date_col]].copy()
+    
     combined = next_e.merge(prev_e[[symbol_col,trade_date_col,"prev_earnings_date"]],
                             on=[symbol_col,trade_date_col], how="left")
     return combined
