@@ -126,40 +126,7 @@ def main():
 
     # Per-symbol price features
     need_symbol = "baseSymbol" in df.columns
-    if not need_symbol:
-        # Fallback to a single stream would be possible, but per your request,
-        # we only do per-symbol merges here.
-        raise SystemExit("Expected baseSymbol column for per-symbol price features.")
-
-    # Compute DTE features on the row level (calendar days, clipped to ≥1)
-    d = df.copy()
-    d["daysToExpiration"] = ((d["expirationDate"].dt.floor("D") - d["tradeTime"].dt.floor("D")).dt.days).clip(lower=1)
-    d["log1p_DTE"] = np.log1p(d["daysToExpiration"].astype(float))
-
-    # Will collect per-symbol PX frames and merge back row-wise
-    feats = []
-    for sym in d["baseSymbol"].dropna().unique():
-        s_mask = d["baseSymbol"] == sym
-        date_span_min = d.loc[s_mask, "trade_date"].min() - pd.Timedelta(days=60)
-        date_span_max = d.loc[s_mask, "trade_date"].max() + pd.Timedelta(days=1)
-
-        s_px = _load_symbol_prices(sym, PX_BASE_DIR, date_span_min, date_span_max)
-        f = _per_symbol_feature_frame(s_px)
-        if f.empty:
-            # still create a frame with index to allow merge (will be NaN)
-            f = pd.DataFrame(index=pd.date_range(date_span_min, date_span_max, freq="B"))
-        f = f.reset_index().rename(columns={"index": "trade_date"})
-        f["baseSymbol"] = sym
-        feats.append(f)
-
-    px_feat = pd.concat(feats, ignore_index=True) if feats else pd.DataFrame(columns=["trade_date","baseSymbol"])
-    # Merge VIX (by date) and PX features (by date+symbol)
-    d = d.merge(vix_df, on="trade_date", how="left")
-    # Fill missing VIX values with the previous date value of vix_df
-    d["VIX"].fillna(method="ffill", inplace=True)
-
-    px_feat.rename(columns={"Date": "trade_date"}, inplace=True)
-    d = d.merge(px_feat, on=["trade_date","baseSymbol"], how="left")
+    d = per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol)
 
     # Gap between previous close and current underlying price
     if "underlyingLastPrice" in d.columns:
@@ -183,6 +150,46 @@ def main():
         "out_csv": out_csv
     }
     print(json.dumps(rep, indent=2))
+
+def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol):
+    if not need_symbol:
+        # Fallback to a single stream would be possible, but per your request,
+        # we only do per-symbol merges here.
+        raise SystemExit("Expected baseSymbol column for per-symbol price features.")
+
+    # Compute DTE features on the row level (calendar days, clipped to ≥1)
+    d = df.copy()
+    #d["daysToExpiration"] = ((d["expirationDate"].dt.floor("D") - d["tradeTime"].dt.floor("D")).dt.days).clip(lower=1)
+    d["log1p_DTE"] = np.log1p(d["daysToExpiration"].astype(float))
+
+    # Will collect per-symbol PX frames and merge back row-wise
+    feats = []
+    d["trade_date"] = pd.to_datetime(d["trade_date"], errors="coerce").dt.floor("D")
+    for sym in d["baseSymbol"].dropna().unique():
+        s_mask = d["baseSymbol"] == sym
+        # TODO: change trade_date to datetime type, tried in 167
+        date_span_min = d.loc[s_mask, "trade_date"].min() - pd.Timedelta(days=60)
+        #date_span_max = d.loc[s_mask, "trade_date"].max() + pd.Timedelta(days=1)
+        date_span_max = d.loc[s_mask, "trade_date"].max() 
+
+        s_px = _load_symbol_prices(sym, PX_BASE_DIR, date_span_min, date_span_max)
+        f = _per_symbol_feature_frame(s_px) # the last row is the previous day's price
+        if f.empty:
+            # still create a frame with index to allow merge (will be NaN)
+            f = pd.DataFrame(index=pd.date_range(date_span_min, date_span_max, freq="B"))
+        f = f.reset_index().rename(columns={"index": "trade_date"})
+        f["baseSymbol"] = sym
+        feats.append(f)
+
+    px_feat = pd.concat(feats, ignore_index=True) if feats else pd.DataFrame(columns=["trade_date","baseSymbol"])
+    # Merge VIX (by date) and PX features (by date+symbol)
+    d = d.merge(vix_df, on="trade_date", how="left")
+    # Fill missing VIX values with the previous date value of vix_df
+    d["VIX"].fillna(method="ffill", inplace=True)
+
+    px_feat.rename(columns={"Date": "trade_date"}, inplace=True)
+    d = d.merge(px_feat, on=["trade_date","baseSymbol"], how="left")
+    return d
 
 if __name__ == "__main__":
     main()
