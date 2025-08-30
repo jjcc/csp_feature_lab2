@@ -142,14 +142,14 @@ def main():
     # feat_list = list(BASE_FEATS + GEX_FEATS + NEW_FEATS)  # copy
     # use lean features after analysis
     LEAN_FEATS = [
-        "potentialReturnAnnual", "VIX", "impliedVolatilityRank1y",
-        "ret_2d_norm", "ret_5d_norm",
-        "log1p_DTE", "daysToExpiration",
-        "underlyingLastPrice",
-        "gex_center_abs_strike", "gex_pos", "gex_gamma_at_ul",
-        "potentialReturn",
-        "prev_close_minus_ul_pct" 
-    ]
+        "potentialReturnAnnual","VIX","impliedVolatilityRank1y",
+        "daysToExpiration","underlyingLastPrice",
+        "gex_center_abs_strike","log1p_DTE",
+        "prev_close_minus_ul_pct",
+        "gex_neg","potentialReturn","gex_pos",
+        "strike","percentToBreakEvenBid",
+        "gex_total_abs","gex_flip_strike",
+        "gex_gamma_at_ul"]
     feat_list = LEAN_FEATS
 
     # 3) Build X and label tails by return_pct quantile
