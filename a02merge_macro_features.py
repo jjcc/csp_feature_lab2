@@ -71,28 +71,46 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
             pass
     return pd.Series(dtype=float, name="Close")
 
-def _per_symbol_feature_frame(s_px):
+def _per_symbol_feature_frame(s_px: pd.Series, start_date, max_trade_date) -> pd.DataFrame:
     """
-    Build per-symbol daily feature frame:
-      ret_2d, ret_5d, ret_2d_norm, ret_5d_norm, prev_close
-    All indexed by date (business days).
+    Build per-symbol daily features with a row for every business day up to max_trade_date,
+    but never fabricate today's (T) close if it doesn't exist. No leakage:
+      prev_close(T)      = Close(T-1)
+      ret_2d(T), ret_5d(T) use returns up to T-1
     """
+    import numpy as np
+    import pandas as pd
+
     if s_px.empty:
-        return pd.DataFrame()
-    # Align to business days and forward-fill to avoid holes
-    daily = s_px.asfreq("B").ffill()
-    ret1d = daily.pct_change()
+        # still return an empty frame on the requested calendar so merge works
+        cal = pd.bdate_range(start=start_date, end=max_trade_date)
+        return pd.DataFrame(index=cal)
+
+    s_px = s_px.sort_index()
+    last_px_date = s_px.index.max()
+
+    # Calendar up to trade-date T (even if T's close is missing)
+    cal = pd.bdate_range(start=start_date, end=max_trade_date)
+
+    # Reindex to calendar; ffill only up to the last REAL close
+    daily = s_px.reindex(cal)
+    daily_ff = daily.ffill()
+    # critical line: DO NOT ffill beyond last_px_date (keeps today's Close as NaN)
+    daily_ff.loc[daily_ff.index > last_px_date] = np.nan
+
+    # 1-day returns on ffilled series; today's ret is NaN if today's Close is NaN
+    ret1d = daily_ff.pct_change()
+    # strict lag so all rolling windows end at T-1
     ret1d_lag = ret1d.shift(1)
 
-    df = pd.DataFrame(index=daily.index)
-    df["prev_close"] = daily.shift(1)  # yesterday's close (no leakage)
-    # Windows that now end at t-1 (no trade-day leakage)
-    df["ret_2d"] = ret1d_lag.rolling(2, min_periods=2).sum()
-    df["ret_5d"] = ret1d_lag.rolling(5, min_periods=5).sum()
-    vol20 = ret1d_lag.rolling(20, min_periods=5).std()
-    df["ret_2d_norm"] = df["ret_2d"] / vol20.replace(0, np.nan)
-    df["ret_5d_norm"] = df["ret_5d"] / vol20.replace(0, np.nan)
-    return df
+    out = pd.DataFrame(index=cal)
+    out["prev_close"]   = daily_ff.shift(1)                     # Close(T-1)
+    out["ret_2d"]       = ret1d_lag.rolling(2, min_periods=2).sum()
+    out["ret_5d"]       = ret1d_lag.rolling(5, min_periods=5).sum()
+    vol20               = ret1d_lag.rolling(20, min_periods=5).std()
+    out["ret_2d_norm"]  = out["ret_2d"] / vol20.replace(0, np.nan)
+    out["ret_5d_norm"]  = out["ret_5d"] / vol20.replace(0, np.nan)
+    return out
 
 def main():
     load_dotenv()
@@ -159,7 +177,7 @@ def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol):
 
     # Compute DTE features on the row level (calendar days, clipped to ≥1)
     d = df.copy()
-    #d["daysToExpiration"] = ((d["expirationDate"].dt.floor("D") - d["tradeTime"].dt.floor("D")).dt.days).clip(lower=1)
+
     d["log1p_DTE"] = np.log1p(d["daysToExpiration"].astype(float))
 
     # Will collect per-symbol PX frames and merge back row-wise
@@ -167,27 +185,27 @@ def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol):
     d["trade_date"] = pd.to_datetime(d["trade_date"], errors="coerce").dt.floor("D")
     for sym in d["baseSymbol"].dropna().unique():
         s_mask = d["baseSymbol"] == sym
-        # TODO: change trade_date to datetime type, tried in 167
-        date_span_min = d.loc[s_mask, "trade_date"].min() - pd.Timedelta(days=60)
-        #date_span_max = d.loc[s_mask, "trade_date"].max() + pd.Timedelta(days=1)
-        date_span_max = d.loc[s_mask, "trade_date"].max() 
+        start = d.loc[s_mask, "trade_date"].min() - pd.Timedelta(days=60)
+        # IMPORTANT: end at the **max trade_date** (T), not +1BD in real time
+        stop  = d.loc[s_mask, "trade_date"].max()
 
-        s_px = _load_symbol_prices(sym, PX_BASE_DIR, date_span_min, date_span_max)
-        f = _per_symbol_feature_frame(s_px) # the last row is the previous day's price
+        s_px = _load_symbol_prices(sym, PX_BASE_DIR, start, stop)
+        f = _per_symbol_feature_frame(s_px, start, stop)
         if f.empty:
-            # still create a frame with index to allow merge (will be NaN)
-            f = pd.DataFrame(index=pd.date_range(date_span_min, date_span_max, freq="B"))
+            f = pd.DataFrame(index=pd.date_range(start, stop, freq="B"))
+
         f = f.reset_index().rename(columns={"index": "trade_date"})
         f["baseSymbol"] = sym
         feats.append(f)
 
-    px_feat = pd.concat(feats, ignore_index=True) if feats else pd.DataFrame(columns=["trade_date","baseSymbol"])
-    # Merge VIX (by date) and PX features (by date+symbol)
-    d = d.merge(vix_df, on="trade_date", how="left")
-    # Fill missing VIX values with the previous date value of vix_df
-    d["VIX"].fillna(method="ffill", inplace=True)
+    px_feat = (pd.concat(feats, ignore_index=True)
+               if feats else pd.DataFrame(columns=["trade_date", "baseSymbol"]))
 
-    px_feat.rename(columns={"Date": "trade_date"}, inplace=True)
+    # Merge VIX by date (then ffill gaps)
+    d = d.merge(vix_df, on="trade_date", how="left")
+    d["VIX"] = d["VIX"].ffill()
+
+    # Merge per-date, per-symbol PX features — gives different values per trade date
     d = d.merge(px_feat, on=["trade_date","baseSymbol"], how="left")
     return d
 
