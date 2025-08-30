@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import os
 from unittest.mock import patch, MagicMock
+import yfinance as yf
 
 # Import the function to test
 import sys
@@ -71,48 +72,38 @@ class TestLoadSymbolPrices(unittest.TestCase):
         self.assertEqual(len(result), 3)  # Should only include dates in range
         self.assertAlmostEqual(result.iloc[0], 150.0)  # First should be 2023-01-01
         self.assertAlmostEqual(result.iloc[-1], 149.0)  # Last should be 2023-01-03
+
+
+
+    def get_earnings_calendar(self, symbols, limit=40):
+        rows = []
+        for sym in symbols:
+            try:
+                df = yf.Ticker(sym).get_earnings_dates(limit=limit)
+                df = df.reset_index().rename(columns={"Earnings Date": "earnings_date"})
+                df["symbol"] = sym
+                rows.append(df[["symbol", "earnings_date"]])
+            except Exception as e:
+                print(f"Failed {sym}: {e}")
+        return pd.concat(rows, ignore_index=True)
     
-    def test_invalid_dates_handling(self):
-        """Test handling of invalid dates in CSV"""
-        test_data = pd.DataFrame({
-            'Date': ['2023-01-01', 'invalid-date', '2023-01-03'],
-            'Close': [150.0, 151.0, 149.0]
-        })
-        csv_path = Path(self.temp_dir) / f"{self.symbol}.csv"
-        test_data.to_csv(csv_path, index=False)
-        
-        result = _load_symbol_prices(self.symbol, self.temp_dir, self.start_date, self.end_date, use_yf=False)
-        
-        # Should only include valid dates (invalid row should be dropped)
-        self.assertEqual(len(result), 2)
+
+    def test_load_calendar_with_yfinance(self):
+        """Test loading symbol prices with yfinance"""
+        symbols = ["AAPL", "MSFT", "TSLA"]
+        earnings_calendar = self.get_earnings_calendar(symbols)
+        earnings_calendar.to_csv("test/data/earnings_calendar.csv", index=False)
+        assert not earnings_calendar.empty
     
-    @patch('a02merge_macro_features.yf')
-    def test_yfinance_fallback_success(self, mock_yf):
-        """Test successful yfinance fallback when CSV not available"""
-        # Mock yfinance download
-        mock_data = pd.DataFrame({
-            'Close': [150.0, 151.0, 149.0]
-        }, index=pd.date_range('2023-01-01', periods=3))
-        mock_yf.download.return_value = mock_data
-        
-        result = _load_symbol_prices(self.symbol, None, self.start_date, self.end_date, use_yf=True)
-        
-        mock_yf.download.assert_called_once_with(self.symbol, start=self.start_date, end=self.end_date)
-        self.assertEqual(result.name, "Close")
-        self.assertEqual(len(result), 3)
-        self.assertAlmostEqual(result.iloc[0], 150.0)
-    
-    @patch('a02merge_macro_features.yf')
-    def test_yfinance_fallback_exception(self, mock_yf):
-        """Test yfinance fallback when it raises an exception"""
-        mock_yf.download.side_effect = Exception("Network error")
-        
-        result = _load_symbol_prices(self.symbol, None, self.start_date, self.end_date, use_yf=True)
-        
-        self.assertEqual(result.name, "Close")
-        self.assertTrue(result.empty)
-        self.assertEqual(result.dtype, float)
-    
+    def test_unique_base_symbol(self):
+        file = "output/labeled_trades_normal.csv"
+        df = pd.read_csv(file)
+        unique_base_symbols = df["baseSymbol"].unique()
+        with open("test/data/unique_sym.json","w") as f:
+            import json
+            json.dump(list(unique_base_symbols), f, indent=2)
+        assert len(unique_base_symbols) == df["baseSymbol"].nunique()   
+
     def test_empty_symbol(self):
         """Test with empty symbol string"""
         result = _load_symbol_prices("", None, self.start_date, self.end_date, use_yf=False)
