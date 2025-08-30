@@ -52,11 +52,13 @@ def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date
             save_cached_price_data(cache_dir, s, price_df)
     return prices
 
-def get_today_and_prevday():
+def get_today_and_prevday(minus = 0):
     """
     get today and previous day. if previous_day is Saturday or Sunday, adjust accordingly.
     """
     today = datetime.now()
+    if minus > 0:
+        today -= pd.Timedelta(days=minus)
     previous_day = today - pd.Timedelta(days=1)
     if previous_day.weekday() == 5:  # Saturday
         previous_day -= pd.Timedelta(days=1)
