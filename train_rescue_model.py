@@ -2,6 +2,7 @@
 import os, json, argparse
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import roc_auc_score, average_precision_score
@@ -30,12 +31,17 @@ import matplotlib.pyplot as plt
 
 DEFAULT_FEATURES = [
     "VIX","ret_2d_norm","ret_5d_norm",
-    "gex_gamma_at_ul","gex_total_abs","gex_neg","gex_flip_strike","gex_distance_to_flip","gex_missing",
+    "gex_gamma_at_ul","gex_total_abs","gex_neg","gex_flip_strike","gex_distance_to_flip","gex_missing","gex_pos",
     "prev_close_minus_strike","percentToBreakEvenBid","moneyness","delta",
     "openInterest","volume","log1p_DTE","impliedVolatilityRank1y",
     "underlyingLastPrice","strike","bidPrice",
-    "potentialReturnAnnual"
+    "potentialReturnAnnual",
+    "prev_close_minus_ul_pct",
+    "is_earnings_week","is_earnings_window"
 ]
+
+load_dotenv()
+
 
 def parse_args():
     ap = argparse.ArgumentParser(description="Train High-Reward Rescue Model (toxic vs false-rejected-safe).")
@@ -51,7 +57,7 @@ def parse_args():
     ap.add_argument("--n-splits", type=int, default=5)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--risk-weight", type=float, default=8.0)
-    ap.add_argument("--threshold-grid", type=str, default="0.05:0.95:0.01")
+    ap.add_argument("--threshold-grid", type=str, default="0.04:0.96:0.02")
     ap.add_argument("--calibrate", action="store_true")
     return ap.parse_args()
 
@@ -79,12 +85,14 @@ def parse_grid(spec):
     start, stop, step = [float(x) for x in spec.split(":")]
     vals, v = [], start
     while v <= stop + 1e-12:
-        vals.append(round(v, 6)); v += step
+        vals.append(round(v, 6))
+        v += step
     return vals
 
 def utility_metrics(y_true, proba_toxic, thr):
     rescue = proba_toxic < thr
-    true_safe = (y_true==0); true_tox=(y_true==1)
+    true_safe = (y_true==0)
+    true_tox=(y_true==1)
     rescued_safe = int(np.sum(rescue & true_safe))
     rescued_tox  = int(np.sum(rescue & true_tox))
     total_safe   = int(np.sum(true_safe))
@@ -98,9 +106,11 @@ def utility_metrics(y_true, proba_toxic, thr):
 def main():
     import pandas as pd
     import json
-    args = parse_args(); os.makedirs(args.outdir, exist_ok=True)
+    args = parse_args()
+    os.makedirs(args.outdir, exist_ok=True)
     args_input = "output/tails_train/v6/tail_gex_v6_cut05_scores_oof.csv"
-    args_outdir = "output/rescue_tail/"
+    #args_outdir = "output/rescue_tail/"
+    args_outdir = os.getenv("RESCUE_OUT")
     #args.tailgate_label_col, 
     #args.label_col
     #args.annual_cut
@@ -125,14 +135,18 @@ def main():
     medians = {c: float(X[c].median()) for c in features}
     skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
     pos_weight = (np.sum(y==0)/max(np.sum(y==1),1))
-    oof = np.zeros_like(y, float); models=[]
+    oof = np.zeros_like(y, float)
+    models=[]
     for k,(tr,va) in enumerate(skf.split(X, y),1):
         base = make_backend(args.model, pos_weight, args.seed+k)
         clf = CalibratedClassifierCV(base, method="isotonic", cv=3) if args.calibrate else base
-        pipe = Pipeline([("model", clf)]); pipe.fit(X.iloc[tr], y[tr])
+        pipe = Pipeline([("model", clf)])
+        pipe.fit(X.iloc[tr], y[tr])
         proba = pipe.predict_proba(X.iloc[va])[:,1] if hasattr(pipe,"predict_proba") else pipe.decision_function(X.iloc[va])
-        oof[va] = proba; models.append(pipe)
-    auc = roc_auc_score(y, oof); ap = average_precision_score(y, oof)
+        oof[va] = proba
+        models.append(pipe)
+    auc = roc_auc_score(y, oof)
+    ap = average_precision_score(y, oof)
     grid = parse_grid(args.threshold_grid)
     import pandas as pd
     rows=[{"threshold":t, **utility_metrics(y,oof,t)} for t in grid]
@@ -142,7 +156,8 @@ def main():
     best_thr=float(best["threshold"])
     final_base=make_backend(args.model, pos_weight, args.seed)
     final=CalibratedClassifierCV(final_base, method="isotonic", cv=3) if args.calibrate else final_base
-    final_pipe=Pipeline([("model", final)]); final_pipe.fit(X, y)
+    final_pipe=Pipeline([("model", final)])
+    final_pipe.fit(X, y)
     import json
     rep={
         "n_candidates":int(len(cand)),"auc_cv":float(auc),"ap_cv":float(ap),
@@ -151,22 +166,38 @@ def main():
         "tailgate_label_col":args.tailgate_label_col,"annual_cut":float(args.annual_cut),
         "risk_weight":float(args.risk_weight),"model_backend":args.model,"calibrated":bool(args.calibrate)
     }
-    thr_path=os.path.join(args_outdir,"threshold_metrics.csv"); rep_path=os.path.join(args_outdir,"rescue_training_report.json"); model_path=os.path.join(args_outdir,"rescue_model.joblib")
-    thr_df.to_csv(thr_path, index=False); open(rep_path,"w").write(json.dumps(rep, indent=2))
+    thr_path=os.path.join(args_outdir,"threshold_metrics.csv")
+    rep_path=os.path.join(args_outdir,"rescue_training_report.json")
+    model_path=os.path.join(args_outdir,"rescue_model.joblib")
+    thr_df.to_csv(thr_path, index=False)
+    open(rep_path,"w").write(json.dumps(rep, indent=2))
+
     pack={"model":final_pipe,"features":features,"medians":medians,"threshold":best_thr,"label_col":args.label_col,"positive_label":1,
           "selection_query":f"(potentialReturnAnnual > {args.annual_cut}) & ({args.tailgate_label_col} == 1)",
           "notes":"Predicts P(toxic) within Tail-Gate-rejected high-reward candidates. Rescue if proba < threshold."}
-    import joblib; joblib.dump(pack, model_path)
+
+    import joblib
+    joblib.dump(pack, model_path)
+
+    no_util = True
+    nu ="no_util"
     try:
         import matplotlib.pyplot as plt
         plt.figure(figsize=(8,5))
         plt.plot(thr_df["threshold"], thr_df["toxic_recall"], label="toxic_recall")
         plt.plot(thr_df["threshold"], thr_df["safe_recovery_rate"], label="safe_recovery_rate")
         plt.plot(thr_df["threshold"], thr_df["slipped_toxic_rate"], label="slipped_toxic_rate")
-        plt.plot(thr_df["threshold"], thr_df["utility"], label="utility")
+        if not no_util:
+            plt.plot(thr_df["threshold"], thr_df["utility"], label="utility")
+            nu = "with_util"
         plt.axvline(best_thr, linestyle="--")
-        plt.xlabel("threshold (P[toxic])"); plt.ylabel("metric"); plt.title("Rescue Threshold Sweep"); plt.legend(); plt.tight_layout()
-        plt.savefig(os.path.join(args_outdir,"threshold_sweep.png"), dpi=150); plt.close()
+        plt.xlabel("threshold (P[toxic])")
+        plt.ylabel("metric")
+        plt.title("Rescue Threshold Sweep")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(args_outdir,f"threshold_sweep_{nu}.png"), dpi=150)
+        plt.close()
     except Exception: pass
     print(json.dumps(rep, indent=2))
     print(f"\nArtifacts saved:\n- {model_path}\n- {rep_path}\n- {thr_path}\n")

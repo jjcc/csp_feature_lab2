@@ -93,7 +93,8 @@ from sklearn.metrics import roc_auc_score, average_precision_score, precision_re
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 
 # --- Config ---
-CSV_INPUT = os.getenv("OUTPUT_DIR") + "/" + os.getenv("MACRO_FEATURE_CSV", "/mnt/data/labeled_trades_with_gex.csv")
+#CSV_INPUT = os.getenv("OUTPUT_DIR") + "/" + os.getenv("MACRO_FEATURE_CSV", "/mnt/data/labeled_trades_with_gex.csv")
+CSV_INPUT = os.getenv("OUTPUT_CSV") # from enriched
 MODEL_OUT = os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_MODEL_OUT", "/mnt/data/tail_model_gex_v1_plus.pkl")
 IMP_OUT = os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_IMP_OUT", "/mnt/data/tail_gex_v1_plus_feature_importances.csv")
 SCORES_OUT = os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_SCORES_OUT", "/mnt/data/tail_gex_v1_plus_scores_oof.csv")
@@ -150,7 +151,11 @@ def main():
         "strike","percentToBreakEvenBid",
         "gex_total_abs","gex_flip_strike",
         "gex_gamma_at_ul"]
-    feat_list = LEAN_FEATS
+    # "next_earnings_date","prev_earnings_date","days_to_earnings" removed
+    ADDED_FEATS = [
+        "is_earnings_week","is_earnings_window"
+        ]
+    feat_list = LEAN_FEATS + ADDED_FEATS
 
     # 3) Build X and label tails by return_pct quantile
     Xdf, medians = _fill_features(df, feat_list)
@@ -187,6 +192,7 @@ def main():
     importances = np.zeros(len(feat_list), dtype=float)
     n_models = 0
 
+    now = pd.Timestamp.now()
     for tr_idx, va_idx in splits:
         Xtr, ytr = X[tr_idx], y[tr_idx]
         Xva, yva = X[va_idx], y[va_idx]
@@ -199,6 +205,9 @@ def main():
         oof[va_idx] = clf.predict_proba(Xva)[:, 1]
         importances += clf.feature_importances_
         n_models += 1
+    then = pd.Timestamp.now()
+    training_duration = (then - now).total_seconds()
+    print(f"Training duration: {training_duration:.2f} seconds")
 
     if n_models == 0:
         raise SystemExit("All folds were degenerate (no positive labels). Increase TAIL_PCT or adjust CV_TYPE.")
@@ -241,7 +250,7 @@ def main():
         .sort_values("importance", ascending=False) \
         .to_csv(IMP_OUT, index=False)
 
-    # for rescue model
+    # for rescue model training, add more features to save
     ENHANCE = True
     if SAVE_SCORES_SAMPLE > 0:
         for col in ["return_pct","return_per_day","return_mon","return_ann", "total_pnl"]:
@@ -255,7 +264,9 @@ def main():
               "prev_close_minus_strike","percentToBreakEvenBid","moneyness","delta","gex_center_abs_strike",
               "openInterest","volume","log1p_DTE",
               "underlyingLastPrice","bidPrice",
-              "impliedVolatilityRank1y"
+              "impliedVolatilityRank1y",
+              "prev_close_minus_ul_pct",
+              "is_earnings_week","is_earnings_window"
 	        ]
             cols = cols + extra_col
         have = [c for c in cols if c in df.columns]
