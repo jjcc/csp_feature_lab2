@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
+from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss,make_scorer
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.pipeline import Pipeline
 from sklearn.inspection import permutation_importance
@@ -18,13 +18,13 @@ import joblib
 
 BASE_FEATURES = [
     "VIX","ret_2d_norm","ret_5d_norm",
-    "gex_gamma_at_ul","gex_total_abs","gex_neg","gex_flip_strike","gex_distance_to_flip","gex_missing",
+    "gex_gamma_at_ul","gex_total_abs","gex_neg","gex_flip_strike","gex_distance_to_flip",
     "percentToBreakEvenBid","moneyness","delta",
     "openInterest","volume","log1p_DTE",
     "impliedVolatilityRank1y",
     "underlyingLastPrice","strike","bidPrice",
     "potentialReturnAnnual","prev_close_minus_ul_pct",
-    "is_earnings_week","is_earnings_window",
+    "is_earnings_window",
 
     # NEW (optional) stack features—include when present:
     "tail_proba_oof",         # P[toxic] from Tail Gate (OOF or live at inference)
@@ -33,6 +33,7 @@ BASE_FEATURES = [
 
 def build_monotone_constraints(features):
     """
+    Note: due to monotone constraints cause the performance loss, the function is not used
     Return XGBoost monotone constraint string matching `features` order:
       - tail_proba_oof:  -1 (higher toxic prob => must increase P[toxic])
       - winner_proba_oof:+1 (higher win prob => must decrease P[toxic])
@@ -146,7 +147,7 @@ def main():
         n_estimators=800, learning_rate=0.03, max_depth=6,
         subsample=0.9, colsample_bytree=0.9, reg_alpha=0.0, reg_lambda=1.0,
         random_state=args.seed, objective="binary:logistic", eval_metric="logloss",
-        n_jobs=0, scale_pos_weight=pos_w, monotone_constraints=mono
+        n_jobs=0, scale_pos_weight=pos_w
     )
     if args.calibration in ("isotonic","sigmoid"):
         model = CalibratedClassifierCV(base, method=args.calibration, cv=3)
@@ -190,7 +191,26 @@ def main():
     pipe_final.fit(X, y)
 
     # Permutation importance (works through calibration)
-    pi = permutation_importance(pipe_final, X, y, n_repeats=10, random_state=args.seed)
+    #pi = permutation_importance(pipe_final, X, y, n_repeats=10, random_state=args.seed)
+    def neg_brier_scorer(estimator, X_eval, y_eval):
+        # Always score on probabilities of the positive class
+        if hasattr(estimator, "predict_proba"):
+            p = estimator.predict_proba(X_eval)[:, 1]
+        else:
+            # fallback for decision_function; convert to probs
+            d = estimator.decision_function(X_eval)
+            p = 1.0 / (1.0 + np.exp(-d))
+        return -brier_score_loss(y_eval, p)
+    
+    pi = permutation_importance(
+        pipe_final, X, y,
+        n_repeats=10,
+        random_state=args.seed,
+        scoring=neg_brier_scorer
+    )
+
+
+
     pi_df = pd.DataFrame({"feature": features, "perm_importance_mean": pi.importances_mean,
                           "perm_importance_std": pi.importances_std}).sort_values("perm_importance_mean", ascending=False)
 
@@ -206,7 +226,7 @@ def main():
         "tail_soft_min": float(args.tail_soft_min),
         "calibration": args.calibration,
         "scale_pos_weight": float(pos_w),
-        "monotone_constraints": build_monotone_constraints(features)
+        "monotone_constraints": "deprecated due to performance loss"
     }
     os.makedirs(args_outdir, exist_ok=True)
     thr_df.to_csv(os.path.join(args_outdir,"threshold_metrics.csv"), index=False)
