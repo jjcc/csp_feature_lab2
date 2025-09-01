@@ -7,3 +7,5 @@ test/data/
 gpt_downloaded/
 models/
 .venv/
+option/
+gex101/

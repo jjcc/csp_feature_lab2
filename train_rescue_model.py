@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, json, argparse
+import os,  argparse
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
@@ -9,6 +9,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.calibration import CalibratedClassifierCV
+import json
 
 MODEL_BACKENDS = {}
 try:
@@ -37,7 +38,8 @@ DEFAULT_FEATURES = [
     "underlyingLastPrice","strike","bidPrice",
     "potentialReturnAnnual",
     "prev_close_minus_ul_pct",
-    "is_earnings_week","is_earnings_window"
+    "is_earnings_week","is_earnings_window",
+    "tail_proba_oof"
 ]
 
 load_dotenv()
@@ -45,8 +47,6 @@ load_dotenv()
 
 def parse_args():
     ap = argparse.ArgumentParser(description="Train High-Reward Rescue Model (toxic vs false-rejected-safe).")
-    ap.add_argument("--input", default="output/tails_train/v5/tail_gex_v5_cut05_score_oof.csv")
-    ap.add_argument("--outdir", default="output/rescue_tail/")
     ap.add_argument("--annual-cut", type=float, default=200.0)
     ap.add_argument("--label-col", default="is_tail")
     ap.add_argument("--tailgate-label-col", default="is_tail_preda")
@@ -104,13 +104,11 @@ def utility_metrics(y_true, proba_toxic, thr):
                 safe_recovery_rate=float(safe_recovery_rate), slipped_toxic_rate=float(slipped_toxic_rate), toxic_recall=float(toxic_recall))
 
 def main():
-    import pandas as pd
-    import json
     args = parse_args()
-    os.makedirs(args.outdir, exist_ok=True)
-    args_input = "output/tails_train/v6/tail_gex_v6_cut05_scores_oof.csv"
-    #args_outdir = "output/rescue_tail/"
+    args_input = "output/tails_train/v6b/tail_gex_v6_cut05_scores_oof.csv"
     args_outdir = os.getenv("RESCUE_OUT")
+    os.makedirs(args_outdir, exist_ok=True)
+    args.annual_cut = 180
     #args.tailgate_label_col, 
     #args.label_col
     #args.annual_cut
@@ -122,7 +120,6 @@ def main():
     cand = df[(df["potentialReturnAnnual"]>args.annual_cut) & (df[args.tailgate_label_col]==1)].copy()
     if len(cand)==0: raise SystemExit("No rows match the candidate filter.")
     if args.features_file:
-        import json
         features = json.load(open(args.features_file))
     elif args.features:
         features = args.features
@@ -148,7 +145,6 @@ def main():
     auc = roc_auc_score(y, oof)
     ap = average_precision_score(y, oof)
     grid = parse_grid(args.threshold_grid)
-    import pandas as pd
     rows=[{"threshold":t, **utility_metrics(y,oof,t)} for t in grid]
     thr_df=pd.DataFrame(rows)
     thr_df["utility"]=thr_df["safe_recovery_rate"] - args.risk_weight*thr_df["slipped_toxic_rate"]
@@ -158,7 +154,12 @@ def main():
     final=CalibratedClassifierCV(final_base, method="isotonic", cv=3) if args.calibrate else final_base
     final_pipe=Pipeline([("model", final)])
     final_pipe.fit(X, y)
-    import json
+
+    # get the feature importances
+    importances = final_pipe.named_steps["model"].feature_importances_
+    feature_importances = pd.Series(importances, index=features).sort_values(ascending=False)
+    feature_importances.to_csv(os.path.join(args_outdir,"feature_importances.csv"))
+
     rep={
         "n_candidates":int(len(cand)),"auc_cv":float(auc),"ap_cv":float(ap),
         "best_threshold":best_thr,"best_row":{k: (float(v) if isinstance(v,(int,float,np.floating)) else v) for k,v in best.to_dict().items()},

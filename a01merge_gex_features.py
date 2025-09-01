@@ -55,7 +55,9 @@ def main():
         "base_dir": base_dir,
         "target_time": target_time_str
     }
-    with open(f"{out_dir}/merge_gex_report3.json","w") as f:
+    import time as t
+    today = t.strftime("%Y%m%d")
+    with open(f"{out_dir}/merge_gex_report_{today}.json","w") as f:
         json.dump(rep, f, indent=2)
     print(json.dumps(rep, indent=2))
 

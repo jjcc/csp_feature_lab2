@@ -26,9 +26,6 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score, root_mean_squared_error
 import yfinance as yf
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, mean_absolute_error, mean_squared_error
 from service.preprocess import load_csp_files 
 
 from service.utils import download_prices_batched;
@@ -104,7 +101,9 @@ def preload_prices_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None)
             missing.append(s)
     if missing:
         print(f"[INFO] Downloading {len(missing)} symbols in batches (size={batch_size})...")
-        fetched = download_prices_batched(missing, start_dt, end_dt, batch_size=batch_size, threads=True)
+        fetched_start = start_dt - pd.Timedelta(days=10)
+        fetched_end = pd.Timestamp.now()
+        fetched = download_prices_batched(missing, fetched_start, fetched_end, batch_size=batch_size, threads=True)
         for s, price_df in fetched.items():
             prices[s] = price_df
             save_cached_price_data(cache_dir, s, price_df)
