@@ -244,7 +244,7 @@ def download_prices_batched(symbols, start_dt, end_dt, batch_size=30, threads=Tr
     import yfinance as yf
     import math
     symbols = sorted(set([s for s in symbols if isinstance(s, str) and len(s)>0]))
-    symbols = [s if "." not in s else s.replace(".", "_") for s in symbols]  # ensure uppercase
+    symbols = [s if "." not in s else s.replace(".", "-") for s in symbols]  # ensure uppercase
     out = {}
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i:i+batch_size]
