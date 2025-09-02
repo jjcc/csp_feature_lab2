@@ -5,6 +5,7 @@ score_tail_with_gex_env.py — (refactored to use model_utils)
 import os, json, joblib, pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
+from service.preprocess import add_dte_and_normalized_returns
 from service.utils import (
     ensure_dir,
     prep_tail_training_df,
@@ -16,7 +17,7 @@ def main():
     load_env_default()
 
     CSV_IN  = os.getenv("TAIL_SCORE_INPUT", "./new_trades_with_gex.csv")
-    MODEL_IN= os.getenv("TAIL_MODEL_OUT", "./tail_model_gex_v1.pkl") # use the output of training
+    MODEL_IN= os.getenv("TAIL_OUT_DIR") + "/" + os.getenv("TAIL_MODEL_OUT", "./tail_model_gex_v1.pkl") # use the output of training
     CSV_OUT = os.getenv("TAIL_SCORE_OUT", "./scores_tail.csv")
     PROBA_COL = os.getenv("TAIL_KEEP_PROBA_COL", "tail_proba")
     PRED_COL  = os.getenv("TAIL_PRED_COL", "is_tail_pred")
@@ -32,7 +33,8 @@ def main():
 
     # 1) Load and derive columns EXACTLY as in training
     raw = pd.read_csv(CSV_IN)
-    df = prep_tail_training_df(raw)
+    df = add_dte_and_normalized_returns(raw)
+    df = prep_tail_training_df(df)
 
     # 2) Fill features using TRAINING medians (and gex_missing rule)
     X, medians = fill_features_with_training_medians(df, feats)

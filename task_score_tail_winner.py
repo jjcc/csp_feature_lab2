@@ -6,12 +6,14 @@ This is a converted version of the test `test_score_tail_winner_classifier` from
 """
 from glob import glob
 import joblib
+import numpy as np
 import pandas as pd
 import os
-from datetime import time
+from datetime import datetime, time
 
 from dotenv import load_dotenv
 
+from a02merge_macro_features import per_symbol_price_feat
 from service.preprocess import merge_gex
 from service.utils import fill_features_with_training_medians, prep_tail_training_df, prep_winner_like_training
 
@@ -22,6 +24,7 @@ TAIL_KEEP_PROBA_COL = "tail_proba"
 WINNER_MODEL_IN = "output/winner/model_pack.pkl"
 WINNER_PROBA_COL = "proba"
 
+PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()  
 
 def parse_target_time(s: str) -> time:
     try:
@@ -31,7 +34,7 @@ def parse_target_time(s: str) -> time:
         return time(11, 0)
 
 
-def get_merge_params():
+def get_merge_params(ignore_log=False):
     option_data_dir = "option/put"
     glob_pat = f"coveredPut_*.csv"
     # get the latest file
@@ -44,7 +47,7 @@ def get_merge_params():
     with open(process_log, "r") as f:
         lines = f.readlines()
     files = [line.strip() for line in lines if line.strip()]
-    if latest_file in files:
+    if not ignore_log and latest_file in files:
         print(f"Latest file {latest_file} already processed.")
         return None, None
     # get time of latest_file, like coveredPut_2025-08-15_16_30.csv
@@ -56,7 +59,7 @@ def get_merge_params():
 
 
 def main():
-    latest_file_with_path, target_minutes = get_merge_params()
+    latest_file_with_path, target_minutes = get_merge_params(True)
     if latest_file_with_path is None:
         print("File is processed or no file found.")
         return
@@ -74,6 +77,27 @@ def main():
     gex_base_dir = os.getenv("GEX_BASE_DIR")
     df_o = merge_gex(option_file, gex_base_dir, target_minutes=target_minutes)
 
+    # add macro features
+    today = datetime.now()
+    # get VIX
+    vix_value = 12
+    vix_df = pd.DataFrame({"trade_date": [today], "VIX": [vix_value]})
+
+    need_symbol = "baseSymbol" in df_o.columns
+    # TO FIX
+    d = per_symbol_price_feat(PX_BASE_DIR, df_o, vix_df, need_symbol)
+
+    # Gap between previous close and current underlying price
+    if "underlyingLastPrice" in d.columns:
+        d["prev_close_minus_ul"] = d["prev_close"] - d["underlyingLastPrice"]
+        d["prev_close_minus_ul_pct"] = (d["prev_close"] - d["underlyingLastPrice"]) / d["underlyingLastPrice"].replace(0, np.nan)
+    else:
+        d["prev_close_minus_ul"] = np.nan
+        d["prev_close_minus_ul_pct"] = np.nan
+    d_final = d
+
+
+
     # tail scoring
     pack_tl = joblib.load(TAIL_MODEL_IN)
     clf_tl = pack_tl["model"]
@@ -85,7 +109,7 @@ def main():
     proba = clf_tl.predict_proba(X_tl)[:, 1]
     out = df.copy()
     out[TAIL_KEEP_PROBA_COL] = proba
-    thresh = 0.04028
+    thresh = 0.03
     out["is_tail_pred"] = (out[TAIL_KEEP_PROBA_COL] >= thresh).astype(int)
 
     # winner scoring
@@ -99,7 +123,7 @@ def main():
     proba = clf_wc.predict_proba(Xwc)[:, 1]
     out2 = out.loc[mask].copy()
     out2[WINNER_PROBA_COL] = proba
-    thresh = 0.8375
+    thresh = 0.9
     out2["is_winner_pred"] = (out2[WINNER_PROBA_COL] >= thresh).astype(int)
 
     # cleanup and filters

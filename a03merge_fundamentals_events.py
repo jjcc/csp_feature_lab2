@@ -277,6 +277,9 @@ def main():
     if args.strict_len_check and len(enriched) != len(trades):
         raise AssertionError(f"[ASSERT] Final row-count changed: trades={len(trades)}, enriched={len(enriched)}")
 
+    enriched[symbol_col] = merged[f"{symbol_col}_y"]
+    enriched.drop(columns=[f"{symbol_col}_x", f"{symbol_col}_y"], inplace=True)
+
     enriched.to_csv(args.output, index=False)
     print(f"Wrote enriched dataset to: {args.output}")
     print("Columns added:", [c for c in new_cols if c in enriched.columns])
