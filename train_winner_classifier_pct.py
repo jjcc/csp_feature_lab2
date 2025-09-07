@@ -286,7 +286,7 @@ def main():
     #FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
     #FEATURES        = BASE_FEATS + GEX_FEATS + NEW_FEATS
     ADDED_FEATS = [
-        "is_earnings_week","is_earnings_window"
+        "is_earnings_week","is_earnings_window","post_earnings_within_3d",
         ]
     FEATURES        = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + ADDED_FEATS
 

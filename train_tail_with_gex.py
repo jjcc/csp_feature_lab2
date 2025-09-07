@@ -111,7 +111,7 @@ LABEL_ON = os.getenv("LABEL_ON", "per_day").lower()  # raw | per_day | annualize
 DATE_COL = os.getenv("DATE_COL", "tradeTime")
 PRICE_COL = os.getenv("PRICE_COL", "underlyingLastPrice")
 
-
+WITH_EARNING = True
 
 def _fill_features(df: pd.DataFrame, feat_list):
     medians = {}
@@ -153,9 +153,12 @@ def main():
         "gex_gamma_at_ul"]
     # "next_earnings_date","prev_earnings_date","days_to_earnings" removed
     ADDED_FEATS = [
-        "is_earnings_week","is_earnings_window"
+        "is_earnings_week","is_earnings_window","post_earnings_within_3d",
         ]
-    feat_list = LEAN_FEATS + ADDED_FEATS
+    if WITH_EARNING:
+        feat_list = LEAN_FEATS + ADDED_FEATS
+    else:
+        feat_list = LEAN_FEATS
 
     # 3) Build X and label tails by return_pct quantile
     Xdf, medians = _fill_features(df, feat_list)
