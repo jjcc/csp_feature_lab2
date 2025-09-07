@@ -92,7 +92,8 @@ def _prep_earnings(df: pd.DataFrame, drop_dupes: bool, symbol_col_for_merge: str
     sym_col = None
     for cand in ["symbol","ticker","baseSymbol"]:
         if cand in df.columns:
-            sym_col = cand; break
+            sym_col = cand
+            break
     if not sym_col:
         raise KeyError("Earnings CSV must have 'symbol' or 'ticker' col")
     if "earnings_date" in df.columns:
@@ -163,11 +164,11 @@ def _merge_next_prev_earnings(trades: pd.DataFrame, earnings: pd.DataFrame, symb
     e[symbol_col] = e[symbol_col].astype(str)
 
     # Sort LEFT by [symbol, trade_date]
-    t_ok = t_ok.sort_values([symbol_col, trade_date_col], kind="mergesort").reset_index(drop=True)
+    t_ok = t_ok.sort_values([ trade_date_col,symbol_col], kind="mergesort").reset_index(drop=True)
 
     # Prepare RIGHT for NEXT: rename first, then sort on the new key
     e_next = e.rename(columns={"earnings_date": "next_earnings_date"})
-    e_next = e_next.sort_values([symbol_col, "next_earnings_date"], kind="mergesort").reset_index(drop=True)
+    e_next = e_next.sort_values([ "next_earnings_date",symbol_col], kind="mergesort").reset_index(drop=True)
 
     # Helper: asof with per-symbol fallback
     def asof_with_fallback(left_df, right_df, right_on_name, direction):
@@ -213,10 +214,10 @@ def _merge_next_prev_earnings(trades: pd.DataFrame, earnings: pd.DataFrame, symb
 
     # Prepare RIGHT for PREV
     e_prev = e.rename(columns={"earnings_date": "prev_earnings_date"})
-    e_prev = e_prev.sort_values([symbol_col, "prev_earnings_date"], kind="mergesort").reset_index(drop=True)
+    e_prev = e_prev.sort_values([ "prev_earnings_date",symbol_col], kind="mergesort").reset_index(drop=True)
 
     # Build base for prev merge (keep row_id)
-    prev_base = next_e[[symbol_col, trade_date_col, "_row_id"]].sort_values([symbol_col, trade_date_col], kind="mergesort")
+    prev_base = next_e[[symbol_col, trade_date_col, "_row_id"]].sort_values([ trade_date_col,symbol_col], kind="mergesort")
     prev_e = asof_with_fallback(prev_base, e_prev, "prev_earnings_date", "backward")
 
     # Combine
@@ -277,8 +278,6 @@ def main():
     if args.strict_len_check and len(enriched) != len(trades):
         raise AssertionError(f"[ASSERT] Final row-count changed: trades={len(trades)}, enriched={len(enriched)}")
 
-    enriched[symbol_col] = merged[f"{symbol_col}_y"]
-    enriched.drop(columns=[f"{symbol_col}_x", f"{symbol_col}_y"], inplace=True)
 
     enriched.to_csv(args.output, index=False)
     print(f"Wrote enriched dataset to: {args.output}")
