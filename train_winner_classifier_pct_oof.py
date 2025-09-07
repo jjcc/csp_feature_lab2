@@ -2,6 +2,28 @@
 """
 train_winner_classifier_pct_oof.py
 
+Winner Classifier trainer fully driven by .env (dotenv).
+New label: winner := (return_pct > 0).
+
+Outputs:
+- model_pack.pkl            (model, features, medians if used, thresholds table, metrics)
+- precision_recall_coverage.csv
+- threshold_table.csv       (per-target thresholds & metrics if targets provided)
+- ml_classifier_metrics.json
+- precision_recall_coverage.png
+
+Key behaviors:
+- Features: use WINNER_FEATURES (comma/JSON) or auto-detect numeric columns (excluding id cols and return_pct)
+- Missing values: by default, median-impute on the TRAIN split only (set WINNER_IMPUTE_MISSING=0 to drop rows instead)
+- Weighting: optional sample weights from return_pct magnitude (WINNER_USE_WEIGHTS=1)
+- Threshold picking for reporting: from WINNER_TARGET_RECALL and/or WINNER_TARGET_PRECISION lists
+
+.env variables (required):
+  WINNER_INPUT=path/to/labeled_trades.csv
+  WINNER_OUTPUT_DIR=./output_winner
+
+
+
 Minimal-mod OOF version of your winner classifier trainer.
 - Uses OOF CV instead of a single train/test split.
 - If 'trade_date' column exists -> TimeSeriesSplit; else StratifiedKFold.
@@ -54,29 +76,19 @@ from dotenv import load_dotenv
 import joblib
 
 # --- Helper imports: try service.* first, then fall back to local modules ---
-try:
-    from service.utils import BASE_FEATS, GEX_FEATS, NEW_FEATS
-except Exception:
-    # define light fallbacks if your utils don't expose these (or customize via WINNER_FEATURES)
-    BASE_FEATS, GEX_FEATS, NEW_FEATS = [], [], []
-
-try:
-    from service.preprocess import add_dte_and_normalized_returns
-except Exception:
-    # fallback: no-op if you don't have this; replace with your own prep
-    def add_dte_and_normalized_returns(df: pd.DataFrame) -> pd.DataFrame:
-        return df
-
+from service.utils import BASE_FEATS, GEX_FEATS, NEW_FEATS
+from service.preprocess import add_dte_and_normalized_returns
 from sklearn.inspection import permutation_importance
 
 
-# ---------- Small utility helpers ----------
+# ---------- Helpers ----------
 
 def ensure_dir(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
 def _parse_list_env(val: str) -> List[float]:
+    """Return list of floats parsed from JSON or comma-separated string. Empty -> []"""
     if val is None:
         return []
     s = val.strip()
@@ -88,6 +100,7 @@ def _parse_list_env(val: str) -> List[float]:
             return [float(x) for x in arr]
     except Exception:
         pass
+    # comma-separated
     return [float(x.strip()) for x in s.split(",") if x.strip()]
 
 def _parse_str_list(val: str) -> List[str]:
@@ -119,6 +132,9 @@ def _parse_bool(val: str, default=False):
     if val is None:
         return default
     return str(val).strip().lower() in {"1","true","yes","y","on"}
+
+
+# ---------- Core ----------
 
 def build_label(df: pd.DataFrame, target_col: str) -> pd.Series:
     if target_col not in df.columns:
@@ -160,6 +176,7 @@ def drop_na_rows(X: pd.DataFrame, y: pd.Series, w: pd.Series = None):
 def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
                              targets_recall: List[float],
                              targets_precision: List[float]) -> pd.DataFrame:
+    """Build a table of thresholds and metrics at requested recall/precision targets."""
     precision, recall, thresholds = precision_recall_curve(y_true, proba)
 
     def metrics_at(thr: float):
@@ -171,7 +188,9 @@ def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
         return pr, rc, f1, keep
 
     rows = []
+
     if targets_recall:
+        # choose highest threshold that still achieves >= target recall
         for tgt in targets_recall:
             chosen_thr, chosen_m = None, None
             for thr in sorted(thresholds, reverse=True):
@@ -186,7 +205,9 @@ def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
                 pr, rc, f1, keep = chosen_m
                 rows.append(dict(target_type="recall", target=tgt, threshold=chosen_thr,
                                  precision=pr, recall=rc, f1=f1, coverage=keep))
+
     if targets_precision:
+        # choose lowest threshold that achieves >= target precision
         for tgt in targets_precision:
             chosen_thr, chosen_m = None, None
             for thr in sorted(thresholds):
@@ -202,6 +223,7 @@ def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
                 pr, rc, f1, keep = chosen_m
                 rows.append(dict(target_type="precision", target=tgt, threshold=chosen_thr,
                                  precision=pr, recall=rc, f1=f1, coverage=keep))
+
     return pd.DataFrame(rows)
 
 def save_feature_importances(clf, X_ref, y_ref, feats, outdir):
@@ -209,21 +231,28 @@ def save_feature_importances(clf, X_ref, y_ref, feats, outdir):
     out_png = os.path.join(outdir, "winner_feature_importances.png")
 
     fi_df = None
+
+    # 1) Model-native importances (fast)
     if hasattr(clf, "feature_importances_"):
         fi = np.asarray(clf.feature_importances_, dtype=float)
         fi_df = pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
 
+    # 2) Fallback: permutation importance (robust, slower)
     if fi_df is None:
         try:
-            perm = permutation_importance(clf, X_ref, y_ref, n_repeats=10, random_state=42, n_jobs=-1)
+            perm = permutation_importance(
+                clf, X_ref, y_ref, n_repeats=10, random_state=42, n_jobs=-1
+            )
             fi_df = pd.DataFrame({"feature": feats, "importance": perm.importances_mean, "importance_std": perm.importances_std})\
                     .sort_values("importance", ascending=False)
         except Exception as e:
             print(f"[WARN] Permutation importance failed: {e}")
             return None
 
+    # Save CSV
     fi_df.to_csv(out_csv, index=False)
 
+    # Plot (top 30 for readability)
     top = fi_df.head(30).iloc[::-1]
     plt.figure(figsize=(8, max(6, 0.3 * len(top))))
     plt.barh(top["feature"], top["importance"])
@@ -232,6 +261,7 @@ def save_feature_importances(clf, X_ref, y_ref, feats, outdir):
     plt.tight_layout()
     plt.savefig(out_png, dpi=150)
     plt.close()
+
     return fi_df
 
 
@@ -239,7 +269,8 @@ def main():
     load_dotenv()
 
     # Required (support both WINNER_INPUT and OUTPUT_CSV, like your original)
-    CSV = os.getenv("WINNER_INPUT") or os.getenv("OUTPUT_CSV")
+    #CSV = os.getenv("WINNER_INPUT")
+    CSV= os.getenv("OUTPUT_CSV") # from enriched
     OUTDIR = os.getenv("WINNER_OUTPUT_DIR")
     MODEL_NAME = os.getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
 
@@ -249,14 +280,12 @@ def main():
     ensure_dir(OUTDIR)
 
     # Optional / defaults
-    ADDED_FEATS = ["is_earnings_week","is_earnings_window","post_earnings_within_3d"]
-
-    # If you supply WINNER_FEATURES in .env, it overrides the default list constructed below.
-    FEATURES_ENV = _parse_str_list(os.getenv("WINNER_FEATURES"))
-    if FEATURES_ENV:
-        FEATURES = FEATURES_ENV
-    else:
-        FEATURES = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + ADDED_FEATS
+    #FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
+    #FEATURES        = BASE_FEATS + GEX_FEATS + NEW_FEATS
+    ADDED_FEATS = [
+        "is_earnings_week","is_earnings_window","post_earnings_within_3d"
+        ]
+    FEATURES = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + ADDED_FEATS
 
     ID_COLS         = _parse_str_list(os.getenv("WINNER_ID_COLS"))
     RANDOM_STATE    = int(os.getenv("WINNER_RANDOM_STATE", "42"))
