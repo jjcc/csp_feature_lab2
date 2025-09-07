@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 # Import the function to test
 import sys
+from service.get_vix import init_driver
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from a02merge_macro_features import _load_vix
 
@@ -25,6 +26,24 @@ class TestLoadVix(unittest.TestCase):
     def tearDown(self):
         import shutil
         shutil.rmtree(self.temp_dir)
+    
+
+    
+    def test_get_current_vix(self):
+        """Test fetching current VIX value from the web page"""
+        from service.get_vix import get_current_vix, url
+        driver = init_driver(headless=True)
+
+
+        vix_value = get_current_vix(url, driver)
+        print("Fetched VIX value:", vix_value)
+        
+        self.assertIsNotNone(vix_value)
+        try:
+            vix_float = float(vix_value)
+            self.assertGreater(vix_float, 0)
+        except ValueError:
+            self.fail("VIX value is not a valid float")
     
     def test_load_from_csv_file_with_Date_Close_columns(self):
         """Test loading VIX from CSV file with Date/Close columns"""
