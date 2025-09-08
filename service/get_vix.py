@@ -6,7 +6,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import platform
 
-url = "https://www.cboe.com/tradable_products/vix/"
+url_vix = "https://www.cboe.com/tradable_products/vix/"
 
 # Set up the Chrome driver automatically
 # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))

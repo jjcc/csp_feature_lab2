@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 # Import the function to test
 import sys
-from service.get_vix import init_driver
+from service.get_vix import init_driver, url_vix
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from a02merge_macro_features import _load_vix
 
@@ -21,7 +21,7 @@ class TestLoadVix(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
         self.start_date = "2025-04-25"
-        self.end_date = "2025-08-10"
+        self.end_date = "2025-09-06"
 
     def tearDown(self):
         import shutil
@@ -31,11 +31,11 @@ class TestLoadVix(unittest.TestCase):
     
     def test_get_current_vix(self):
         """Test fetching current VIX value from the web page"""
-        from service.get_vix import get_current_vix, url
+        from service.get_vix import get_current_vix
         driver = init_driver(headless=True)
 
 
-        vix_value = get_current_vix(url, driver)
+        vix_value = get_current_vix(url_vix, driver)
         print("Fetched VIX value:", vix_value)
         
         self.assertIsNotNone(vix_value)
@@ -133,7 +133,7 @@ class TestLoadVix(unittest.TestCase):
         #mock_yf.download.return_value = mock_data
 
         VIX_CSV="output/vix_data.csv"
-        result = _load_vix(VIX_CSV, self.start_date, self.end_date, use_yf=True)
+        result = _load_vix(VIX_CSV, self.start_date, self.end_date)
         
         #mock_yf.download.assert_called_once_with("^VIX", start=self.start_date, end=self.end_date)
         self.assertEqual(result.name, "VIX")
