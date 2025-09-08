@@ -27,6 +27,10 @@ def _safe_float(v, default=None):
         return float(v)
     except:
         return default
+def _ret_col(df):
+    if 'return_mon' in df.columns: return 'return_mon'
+    if 'return_pct' in df.columns: return 'return_pct'
+    raise ValueError("Need realized return column: return_mon or return_pct")
 
 def build_labels(df, label_kind='win', lam=0.25):
     """
@@ -34,25 +38,24 @@ def build_labels(df, label_kind='win', lam=0.25):
       - 'win'     -> y = 1[pnl_pct > 0]
       - 'utility' -> y = 1[U > 0], where U = EV - lam*|CVaR95| computed via p_win bins
     """
+    ret_col = _ret_col(df)
     if label_kind == 'win':
-        if 'return_pct' not in df.columns:
-            raise ValueError("return_pct required for 'win' labels")
-        y = (df['return_pct'] > 0).astype(int).values
+        y = (df[ret_col] > 0).astype(int).values
         return y
 
     # utility-based
-    if 'return_pct' not in df.columns or df['return_pct'].isna().all():
+    if ret_col not in df.columns or df[ret_col].isna().all():
         raise ValueError("return_pct with non-NaN values is required for 'utility' labels")
 
     # Build bin stats on the available rows with realized return
-    ev = df.dropna(subset=['p_win', 'return_pct']).copy()
+    ev = df.dropna(subset=['p_win', ret_col]).copy()
     if len(ev) < 200:
         # trivial fallback
         wins = pd.Series({0:0.01}); non = pd.Series({0:-0.01}); cvars = pd.Series({0:-0.03})
         bins = pd.Series(0, index=df.index)
     else:
         ev['_bin'] = pd.qcut(ev['p_win'], q=10, labels=False, duplicates='drop')
-        wins, non, cvars, _ = fit_bucket_stats(ev, prob_col='p_win', ret_col='pnl_pct', q=0.95, tau=50.0)
+        wins, non, cvars, _ = fit_bucket_stats(ev, prob_col='p_win', ret_col=ret_col, q=0.95, tau=50.0)
         bins = pd.qcut(df['p_win'], q=10, labels=False, duplicates='drop').fillna(0).astype(int)
 
     # map bins to expected stats
@@ -76,7 +79,7 @@ def pick_features(df):
     # Always include p_tail and p_win; optionally include risk/context features if present
     base = ['p_tail', 'p_win']
     extra = [c for c in [
-        'log1p_DTE','moneyness','delta','impliedVolatilityRank1y','percentToBreakEvenBid','VIX'
+        'log1p_DTE','moneyness','delta','impliedVolatilityRank1y','percentToBreakEvenBid','VIX',
         'openInterest','volume','breakEvenProbability','potentialReturnAnnual','gex_center_abs_strike','gex_neg','gex_pos'
     ] if c in df.columns]
     feats = base + extra
