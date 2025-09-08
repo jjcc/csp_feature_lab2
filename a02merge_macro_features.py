@@ -20,24 +20,25 @@ def _load_vix(vix_csv, start_date, end_date):
         date_col = "Date" if "Date" in vdf.columns else "date"
         close_col = "VIX" if "VIX" in vdf.columns else "Close"
         vdf[date_col] = pd.to_datetime(vdf[date_col], errors="coerce")
-        vdf = vdf.dropna(subset=[date_col]).set_index(date_col).sort_index()
-        return vdf.loc[start_date:end_date, close_col].rename("VIX").astype(float)
+        max_date = vdf[date_col].max()
+        if pd.isna(max_date) or max_date > pd.to_datetime(end_date):
+            vdf = vdf.dropna(subset=[date_col]).set_index(date_col).sort_index()
+            return vdf.loc[start_date:end_date, close_col].rename("VIX").astype(float)
     #if use_yf:
-    else:
-        try:
-            df = yf.download("^VIX", start=start_date, end=end_date)
-            # Handle MultiIndex columns from yfinance
-            if isinstance(df.columns, pd.MultiIndex):
-                # Get single-index DataFrame by selecting the ^VIX ticker level
-                vix_df = df.xs("^VIX", axis=1, level=1)  # Extract ^VIX columns, drop MultiIndex
-                s = vix_df["Close"].rename("VIX")
-            else:
-                s = df["Close"].rename("VIX")
-            s.index = pd.to_datetime(s.index)
-            s.to_csv(vix_csv)
-            return s
-        except Exception:
-            pass
+    try:
+        df = yf.download("^VIX", start=start_date, end=end_date)
+        # Handle MultiIndex columns from yfinance
+        if isinstance(df.columns, pd.MultiIndex):
+            # Get single-index DataFrame by selecting the ^VIX ticker level
+            vix_df = df.xs("^VIX", axis=1, level=1)  # Extract ^VIX columns, drop MultiIndex
+            s = vix_df["Close"].rename("VIX")
+        else:
+            s = df["Close"].rename("VIX")
+        s.index = pd.to_datetime(s.index)
+        s.to_csv(vix_csv)
+        return s
+    except Exception:
+        pass
     return pd.Series(dtype=float, name="VIX")
 
 def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
@@ -93,7 +94,13 @@ def _per_symbol_feature_frame(s_px: pd.Series, start_date, max_trade_date) -> pd
     cal = pd.bdate_range(start=start_date, end=max_trade_date)
 
     # Reindex to calendar; ffill only up to the last REAL close
-    daily = s_px.reindex(cal)
+    try:
+        daily = s_px.reindex(cal)
+    except Exception as ex:
+        print(f"Reindexing error for symbol prices: {ex}")
+        # return empty dataframe
+        return pd.DataFrame(index=cal)
+
     daily_ff = daily.ffill()
     # critical line: DO NOT ffill beyond last_px_date (keeps today's Close as NaN)
     daily_ff.loc[daily_ff.index > last_px_date] = np.nan
@@ -190,6 +197,8 @@ def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol):
         stop  = d.loc[s_mask, "trade_date"].max()
 
         s_px = _load_symbol_prices(sym, PX_BASE_DIR, start, stop)
+        # remove duplicated index
+        s_px = s_px[~s_px.index.duplicated(keep="first")]
         f = _per_symbol_feature_frame(s_px, start, stop)
         if f.empty:
             f = pd.DataFrame(index=pd.date_range(start, stop, freq="B"))
