@@ -145,5 +145,97 @@ class TestDataAna(unittest.TestCase):
         return results_df
 
 
+    def test_win_rate_by_prodictions(self):
+        """
+        Analyze win rate across different quantiles of model predictions
+        """
+        data_file = "output/winner_score/scores_winner_model_v6_oof_ne_straited.csv"
+        df_raw = pd.read_csv(data_file)
+        df_data = df_raw.copy()
+
+        conditions = {"no_less_than_59pct_potentialReturnAnnual": df_data['potentialReturnAnnual'] >= 59,
+                      "no_more_than_200pct_potentialReturnAnnual": df_data['potentialReturnAnnual'] <= 200,
+                      "no_less_than_59pct_and_no_more_than_200pct_potentialReturnAnnual": (df_data['potentialReturnAnnual'] >= 59) & (df_data['potentialReturnAnnual'] <= 200),
+                      "all_data": pd.Series([True]*len(df_data))}
+        for cond_name, cond in conditions.items():
+            print(f"Filtering data: {cond_name} ({cond.sum()} samples)")
+            df_data = df_raw.copy()
+            df_data = df_data[cond]
+
+            # Add labelled_winner column if not exists
+            results_df = self.calc_quantile(df_data, cond_name=cond_name)
+            # Save results to CSV
+            results_df.to_csv(f'test/data/win_rate_ana_{cond_name}.csv', index=False)
+
+    def calc_quantile(self, df_data, cond_name=""):
+        if 'labelled_winner' not in df_data.columns:
+            df_data['labelled_winner'] = df_data['win_labeled'] > 0
+        
+        
+        
+        #df_data['win_proba'] = clf.predict_proba(X)[:, 1]
+        
+        # Define quantile thresholds
+        #quantiles = [0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
+        #quantiles = [40, 50, 60, 70, 80, 90, 95]
+        quantiles = [2, 5, 10, 20, 30, 40, 50, 60, 80]
+        
+        # Calculate quantile values
+        quantile_values = [df_data['win_proba'].quantile(q/100) for q in quantiles]
+        
+        # Create segments
+        segments = []
+        prev_val = df_data['win_proba'].min()
+        
+        for q, val in zip(quantiles, quantile_values):
+            mask = (df_data['win_proba'] > prev_val) & (df_data['win_proba'] <= val)
+            segment_data = df_data[mask]
+            
+            if len(segment_data) > 0:
+                win_rate = segment_data['labelled_winner'].mean() * 100
+                count = len(segment_data)
+                wins = segment_data['labelled_winner'].sum()
+                
+                segments.append({
+                    'Segment': f"Q{q} ({prev_val:.3f} to {val:.3f})",
+                    'Min': segment_data['win_proba'].min(),
+                    'Max': segment_data['win_proba'].max(),
+                    'Count': count,
+                    'Wins': wins,
+                    'Win Rate (%)': win_rate
+                })
+            
+            prev_val = val
+        
+        # Add final segment for values above the last threshold
+        mask = df_data['win_proba'] > quantile_values[-1]
+        segment_data = df_data[mask]
+        if len(segment_data) > 0:
+            win_rate = segment_data['labelled_winner'].mean() * 100
+            count = len(segment_data)
+            wins = segment_data['labelled_winner'].sum()
+            
+            segments.append({
+                'Segment': f"> {quantile_values[-1]:.3f}",
+                'Min': segment_data['win_proba'].min(),
+                'Max': segment_data['win_proba'].max(),
+                'Count': count,
+                'Wins': wins,
+                'Win Rate (%)': win_rate
+            })
+        # Create DataFrame and display results
+        results_df = pd.DataFrame(segments)
+        print("\n" + "="*80)
+        print("Win Rate Analysis by Model Prediction Segments: " + cond_name)
+        print("="*80)
+        print(results_df.to_string(index=False))
+        # Summary statistics
+        print("\n" + "-"*80)
+        print("Summary Statistics:")
+        print(f"Total samples: {df_data.shape[0]}")
+        print(f"Overall win rate: {df_data['labelled_winner'].mean()* 100:.2f}%")
+        print(f"Model prediction range: [{df_data['win_proba'].min():.3f}, {df_data['win_proba'].max():.3f}]")
+        return results_df
+
 if __name__ == '__main__':
     unittest.main()
