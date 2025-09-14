@@ -46,6 +46,104 @@ class TestDataAna(unittest.TestCase):
         #gex extra = {'gex_pos', 'gex_missing', 'gex_distance_to_flip', 'gex_total_abs', 'symbol_norm', 'gex_sign_at_ul', 'gex_flip_strike', 'gex_file', 'trade_date', 'gex_neg', 'gex_center_abs_strike', 'gex_total', 'gex_gamma_at_ul'}
         #macro extra = {'VIX', 'ret_5d_norm', 'prev_close_minus_strike', 'ret_2d', 'prev_close_minus_strike_pct', 'log1p_DTE', 'prev_close', 'ret_5d', 'ret_2d_norm'}
 
+    def test_win_rate_by_potential_return_quantiles(self):
+        """
+        Analyze win rate across different quantiles of potentialReturnAnnal
+        """
+        df_enriched = self.df_enriched.copy()
+        
+        # Add labelled_winner column if not exists
+        if 'labelled_winner' not in df_enriched.columns:
+            df_enriched['labelled_winner'] = (df_enriched['return_pct'] > 0).astype(int)
+        
+        # Define quantile thresholds
+        quantiles = [30, 40, 50, 60, 70, 90, 120, 150, 200]
+        
+        # Calculate quantile values
+        quantile_values = []
+        for q in quantiles:
+            if q <= 100:
+                quantile_val = df_enriched['potentialReturnAnnual'].quantile(q/100)
+            else:
+                # For values > 100, interpret as absolute thresholds
+                quantile_val = q
+            quantile_values.append(quantile_val)
+        
+        # Create segments
+        segments = []
+        prev_val = df_enriched['potentialReturnAnnual'].min()
+        
+        for i, (q, val) in enumerate(zip(quantiles, quantile_values)):
+            if q <= 100:
+                # Quantile-based segment
+                mask = (df_enriched['potentialReturnAnnual'] > prev_val) & (df_enriched['potentialReturnAnnual'] <= val)
+                segment_name = f"Q{q} ({prev_val:.1f} to {val:.1f})"
+            else:
+                # Absolute threshold segment
+                if i == 0 or quantiles[i-1] <= 100:
+                    # First absolute threshold or transition from quantile
+                    if i > 0:
+                        prev_val = quantile_values[i-1]
+                mask = (df_enriched['potentialReturnAnnual'] > prev_val) & (df_enriched['potentialReturnAnnual'] <= val)
+                segment_name = f"{prev_val:.1f} to {val:.1f}"
+            
+            segment_data = df_enriched[mask]
+            
+            if len(segment_data) > 0:
+                win_rate = segment_data['labelled_winner'].mean() * 100
+                count = len(segment_data)
+                wins = segment_data['labelled_winner'].sum()
+                
+                segments.append({
+                    'Segment': segment_name,
+                    'Min': segment_data['potentialReturnAnnual'].min(),
+                    'Max': segment_data['potentialReturnAnnual'].max(),
+                    'Count': count,
+                    'Wins': wins,
+                    'Win Rate (%)': win_rate
+                })
+            
+            prev_val = val
+        
+        # Add final segment for values above the last threshold
+        mask = df_enriched['potentialReturnAnnual'] > quantile_values[-1]
+        segment_data = df_enriched[mask]
+        
+        if len(segment_data) > 0:
+            win_rate = segment_data['labelled_winner'].mean() * 100
+            count = len(segment_data)
+            wins = segment_data['labelled_winner'].sum()
+            
+            segments.append({
+                'Segment': f"> {quantile_values[-1]:.1f}",
+                'Min': segment_data['potentialReturnAnnual'].min(),
+                'Max': segment_data['potentialReturnAnnual'].max(),
+                'Count': count,
+                'Wins': wins,
+                'Win Rate (%)': win_rate
+            })
+        
+        # Create DataFrame and display results
+        results_df = pd.DataFrame(segments)
+        
+        print("\n" + "="*80)
+        print("Win Rate Analysis by potentialReturnAnnual Segments")
+        print("="*80)
+        print(results_df.to_string(index=False))
+        
+        # Summary statistics
+        print("\n" + "-"*80)
+        print("Summary Statistics:")
+        print(f"Total samples: {df_enriched.shape[0]}")
+        print(f"Overall win rate: {df_enriched['labelled_winner'].mean()*100:.2f}%")
+        print(f"potentialReturnAnnual range: [{df_enriched['potentialReturnAnnual'].min():.2f}, {df_enriched['potentialReturnAnnual'].max():.2f}]")
+        
+        # Save results to CSV
+        results_df.to_csv('test/data/win_rate_by_potential_return_segments.csv', index=False)
+        print("\nResults saved to: test/data/win_rate_by_potential_return_segments.csv")
+        
+        return results_df
+
 
 if __name__ == '__main__':
     unittest.main()
