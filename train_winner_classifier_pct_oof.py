@@ -269,7 +269,7 @@ def main():
     load_dotenv()
 
     # Required (support both WINNER_INPUT and OUTPUT_CSV, like your original)
-    #CSV = os.getenv("WINNER_INPUT")
+    #CSV = os.getenv("WINNER_INPUT") # from unseen
     CSV= os.getenv("OUTPUT_CSV") # from enriched
     OUTDIR = os.getenv("WINNER_OUTPUT_DIR")
     MODEL_NAME = os.getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
@@ -282,10 +282,12 @@ def main():
     # Optional / defaults
     #FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
     #FEATURES        = BASE_FEATS + GEX_FEATS + NEW_FEATS
-    ADDED_FEATS = [
+    EARNING_FEATS = [
         "is_earnings_week","is_earnings_window","post_earnings_within_3d"
         ]
-    FEATURES = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + ADDED_FEATS
+    #FEATURES = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + EARNING_FEATS
+    # remove earning for now
+    FEATURES = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"]
 
     ID_COLS         = _parse_str_list(os.getenv("WINNER_ID_COLS"))
     RANDOM_STATE    = int(os.getenv("WINNER_RANDOM_STATE", "42"))
