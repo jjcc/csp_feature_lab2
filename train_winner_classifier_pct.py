@@ -285,10 +285,10 @@ def main():
     # Optional
     #FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
     #FEATURES        = BASE_FEATS + GEX_FEATS + NEW_FEATS
-    ADDED_FEATS = [
+    EARNING_FEATS = [
         "is_earnings_week","is_earnings_window","post_earnings_within_3d",
         ]
-    FEATURES        = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + ADDED_FEATS
+    FEATURES        = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + EARNING_FEATS
 
     ID_COLS         = _parse_str_list(os.getenv("WINNER_ID_COLS"))
     TEST_SIZE       = float(os.getenv("WINNER_TEST_SIZE", "0.2"))
@@ -325,7 +325,6 @@ def main():
     # Weights (optional)
     wgt = None
     if USE_WEIGHTS:
-        #ret = pd.to_numeric(df["return_pct"], errors="coerce").fillna(0.0)
         ret = pd.to_numeric(df[TRAIN_TARGET], errors="coerce").fillna(0.0)
         wgt = 1.0 + WEIGHT_ALPHA * ret.abs()
         wgt = np.clip(wgt, WEIGHT_MIN, WEIGHT_MAX)

@@ -257,7 +257,7 @@ def save_feature_importances(clf, X_ref, y_ref, feats, outdir):
     plt.figure(figsize=(8, max(6, 0.3 * len(top))))
     plt.barh(top["feature"], top["importance"])
     plt.xlabel("Importance")
-    plt.title("Winner Classifier — Feature Importance (final model)")
+    plt.title("Winner Classifier — Feature Importance")
     plt.tight_layout()
     plt.savefig(out_png, dpi=150)
     plt.close()
@@ -268,7 +268,7 @@ def save_feature_importances(clf, X_ref, y_ref, feats, outdir):
 def main():
     load_dotenv()
 
-    # Required (support both WINNER_INPUT and OUTPUT_CSV, like your original)
+    # Inputs (required)
     #CSV = os.getenv("WINNER_INPUT") # from unseen
     CSV= os.getenv("OUTPUT_CSV") # from enriched
     OUTDIR = os.getenv("WINNER_OUTPUT_DIR")
