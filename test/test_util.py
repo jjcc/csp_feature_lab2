@@ -11,7 +11,7 @@ class TestUtil(unittest.TestCase):
         """
         Compare prep_tail_training_derived and _prep_df outputs
         """
-        df = pd.read_csv("output/labeled_trades_with_gex.csv")
+        df = pd.read_csv("output/labeled_trades_with_gex_normal.csv")
         result1 = prep_tail_training_df(df)
         #result2 = _prep_df(df)
         # Check if both functions produce the same result

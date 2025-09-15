@@ -46,6 +46,24 @@ def main():
     if thr is not None:
         out[PRED_COL] = (out[PROBA_COL] >= thr).astype(int)
 
+    # get AUC-ROC and AUC-PR
+
+    out = add_dte_and_normalized_returns(out)
+    TAIL_PCT = float(os.getenv("TAIL_PCT", "0.03"))
+    #target_df = df["return_pct"]
+    target_df = df["return_mon"]
+    tail_cut = target_df.quantile(TAIL_PCT)
+    print(f"Tail cut at {TAIL_PCT*100:.2f}% quantile = {tail_cut:.4f}")
+    y = (target_df <= tail_cut).astype(int).values
+    # create "is_tail" column for evaluation
+    out["is_tail"] = y
+
+    if "is_tail" in out.columns:
+        from sklearn.metrics import roc_auc_score, average_precision_score
+        auc_roc = roc_auc_score(out["is_tail"], out[PROBA_COL])
+        auc_pr  = average_precision_score(out["is_tail"], out[PROBA_COL])
+        print(f"AUC-ROC={auc_roc:.4f}; AUC-PR={auc_pr:.4f}")
+
     ensure_dir(CSV_OUT)
     out.to_csv(CSV_OUT, index=False)
 

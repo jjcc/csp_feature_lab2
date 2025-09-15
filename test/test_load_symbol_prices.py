@@ -8,11 +8,51 @@ import tempfile
 import os
 from unittest.mock import patch, MagicMock
 import yfinance as yf
+import time
 
 # Import the function to test
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from a02merge_macro_features import _load_symbol_prices
+
+
+
+def collect_fundamentals(symbols):
+    rows = []
+    length = len(symbols)
+    for idx, sym in enumerate(symbols):
+        try:
+            info = yf.Ticker(sym).get_info()
+            rows.append({
+                "symbol": sym,
+                "marketcap": info.get("marketCap"),
+                "sector": info.get("sector")
+            })
+            time.sleep(0.5)  # be nice to Yahoo servers
+        except Exception as e:
+            print(f"Failed {sym}: {e}")
+        if idx % 100 == 0:
+            print(f"Processed {idx+1}/{length} symbols...")
+    return pd.DataFrame(rows)
+
+def collect_earnings(symbols, limit=16):
+    rows = []
+    length = len(symbols)
+    for idx, sym in enumerate(symbols):
+        try:
+            df = yf.Ticker(sym).get_earnings_dates(limit=limit)
+            df = df.reset_index().rename(columns={"Earnings Date": "earnings_date"})
+            df["symbol"] = sym
+            rows.append(df[["symbol", "earnings_date"]])
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"Failed {sym}: {e}")
+        if idx % 100 == 0:
+            print(f"Processed {idx+1}/{length} symbols...")
+    return pd.concat(rows, ignore_index=True)
+
+
+
 
 
 class TestLoadSymbolPrices(unittest.TestCase):
@@ -111,6 +151,27 @@ class TestLoadSymbolPrices(unittest.TestCase):
         self.assertEqual(result.name, "Close")
         self.assertTrue(result.empty)
         self.assertEqual(result.dtype, float)
+    
+    def test_download_cal_fundemental(self):
+        with open("test/data/unique_sym.json","r") as f:
+            import json
+            symbols = json.load(f)
+        earnings_calendar = collect_earnings(symbols)
+        fundamentals = collect_fundamentals(symbols)
+
+        earnings_calendar.to_csv("output/symbol_info/earnings_calendar.csv", index=False)
+        fundamentals.to_csv("output/symbol_info/fundamentals.csv", index=False)
+        assert not earnings_calendar.empty
+        assert not fundamentals.empty
+        print("Download complete!")
+    
+
+    def test_verify_cal_earning(self):
+        symbols = ["NVDA"]
+        earnings_calendar = collect_earnings(symbols)
+        assert not earnings_calendar.empty
+        print(earnings_calendar)
+        assert len(earnings_calendar) > 0
 
 
 if __name__ == '__main__':

@@ -30,10 +30,13 @@ def main():
     load_env_default()
 
     #CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
-    CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("MACRO_FEATURE_CSV", "./candidates.csv"))
+    #CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("MACRO_FEATURE_CSV", "./candidates.csv"))
+    CSV_IN  = os.getenv("OUTPUT_CSV", "./candidates.csv")
     #CSV_IN  =  os.getenv("MACRO_FEATURE_CSV", "./candidates.csv")
-    #MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
-    MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
+    #Other model want to score
+    MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
+    #current training model
+    #MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
     CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
     PROBA_COL = os.getenv("WINNER_PROBA_COL", "prob_winner")
     PRED_COL  = os.getenv("WINNER_PRED_COL", "pred_winner")
@@ -60,11 +63,13 @@ def main():
     df = add_dte_and_normalized_returns(df)
     if "tradeTime" in df.columns:
         df["tradeTime"] = pd.to_datetime(df["tradeTime"], errors="coerce")
+    
+    USE_OOF = True
 
     # Filter
     split_file = os.getenv("WINNER_SPLIT_FILE", "").strip()
     split_file = os.path.join(os.getenv("WINNER_OUTPUT_DIR", "output"), split_file)
-    if split_file:
+    if split_file and not USE_OOF:
         if not os.path.isfile(split_file):
             raise FileNotFoundError(f"WINNER_SPLIT_FILE not found: {split_file}")
         df_split = pd.read_csv(split_file)
@@ -79,6 +84,9 @@ def main():
             df = df.drop(columns=[col, real_col+"_y"])
         # filter "is_train" == 0
         df = df[df["is_train"] == 0]
+    else:
+        if "is_train" in df.columns:
+            df = df[df["is_train"] == 0]
 
 
     # Match training-time preprocessing
@@ -111,6 +119,7 @@ def main():
         thr_table = None
 
     out[PRED_COL] = (out[PROBA_COL] >= chosen_thr).astype(int)
+    out["win_labeled"] = y if y is not None else np.nan
 
     ensure_dir(CSV_OUT)
     out.to_csv(CSV_OUT, index=False) 
@@ -130,6 +139,13 @@ def main():
             rows.append(row)
         pd.DataFrame(rows).to_csv(OUT_SCORED.replace("_scored.csv", "_threshold_sweep.csv"), index=False)
 
+    # get AUC_ROC and AUC_PRC
+    if y is not None:
+        auc_roc = roc_auc_score(y, proba) if len(np.unique(y)) > 1 else float('nan')
+        auc_prc = average_precision_score(y, proba)
+        print(f"AUC-ROC: {auc_roc:.4f}, AUC-PRC: {auc_prc:.4f}")
+        with open(Path(CSV_OUT).with_suffix(".metrics.txt"), "w") as f:
+            f.write(f"AUC-ROC: {auc_roc:.6f}\nAUC-PRC: {auc_prc:.6f}\n")
 
     summary = {
         "rows_scored": int(len(out)),

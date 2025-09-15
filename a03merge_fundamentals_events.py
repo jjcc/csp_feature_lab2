@@ -37,7 +37,7 @@ def _as_bool(x, default=False):
 def _env_defaults():
     load_dotenv()
     return {
-        "trades": os.getenv("TRADES_CSV", None),
+        "trades": os.getenv("MACRO_FEATURE_CSV", None),
         "earnings": os.getenv("EARNINGS_CSV", None),
         "output": os.getenv("OUTPUT_CSV", None),
         "symbol_col": os.getenv("SYMBOL_COL", None),
@@ -253,7 +253,9 @@ def _add_feature_columns(df: pd.DataFrame, trade_date_col: str) -> pd.DataFrame:
 def main():
     args = parse_args_with_env()
 
-    trades = pd.read_csv(args.trades)
+    OUTPUT_DIR = os.getenv("OUTPUT_DIR", ".")
+    trades_path = os.path.join(OUTPUT_DIR, args.trades)
+    trades = pd.read_csv(trades_path)
     symbol_col = args.symbol_col or _detect_symbol_col(trades, None)
     earnings_raw = pd.read_csv(args.earnings)
 
