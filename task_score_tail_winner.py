@@ -14,15 +14,18 @@ from datetime import datetime, time
 from dotenv import load_dotenv
 
 from a02merge_macro_features import per_symbol_price_feat
+from service.get_vix import get_current_vix, init_driver, url_vix
 from service.preprocess import merge_gex
 from service.utils import fill_features_with_training_medians, prep_tail_training_df, prep_winner_like_training
 
 load_dotenv()
 
-TAIL_MODEL_IN = "models/tail_model_gex_v2_cut05.pkl"
+#TAIL_MODEL_IN = "models/tail_model_gex_v2_cut05.pkl"
+TAIL_MODEL_IN = "output/tails_train/v6b_ne/tail_model_gex_v6b_ne_cut05.pkl"
 TAIL_KEEP_PROBA_COL = "tail_proba"
-WINNER_MODEL_IN = "output/winner/model_pack.pkl"
-WINNER_PROBA_COL = "proba"
+#WINNER_MODEL_IN = "output/winner/model_pack.pkl"
+WINNER_MODEL_IN = "output/winner_train/v6_oof_ne/winner_classifier_model_v6_oof_ne.pkl"
+WINNER_PROBA_COL = "winner_proba"
 
 PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()  
 
@@ -58,7 +61,7 @@ def get_merge_params(ignore_log=False):
     return latest_file_with_path, target_minutes
 
 
-def main():
+def main(Test=False):
     latest_file_with_path, target_minutes = get_merge_params(True)
     if latest_file_with_path is None:
         print("File is processed or no file found.")
@@ -80,7 +83,12 @@ def main():
     # add macro features
     today = datetime.now()
     # get VIX
-    vix_value = 12
+    driver = init_driver(headless=True)
+    vix_value = get_current_vix(url_vix, driver)
+    try:
+        vix_value = float(vix_value)
+    except ValueError:
+        vix_value = 16.35
     vix_df = pd.DataFrame({"trade_date": [today], "VIX": [vix_value]})
 
     need_symbol = "baseSymbol" in df_o.columns
@@ -95,6 +103,10 @@ def main():
         d["prev_close_minus_ul"] = np.nan
         d["prev_close_minus_ul_pct"] = np.nan
     d_final = d
+
+    # end of add macro features
+    # get next earning and previous earning
+
 
 
 
@@ -123,7 +135,7 @@ def main():
     proba = clf_wc.predict_proba(Xwc)[:, 1]
     out2 = out.loc[mask].copy()
     out2[WINNER_PROBA_COL] = proba
-    thresh = 0.9
+    thresh = 0.85 # 0.85 get 90 win rate
     out2["is_winner_pred"] = (out2[WINNER_PROBA_COL] >= thresh).astype(int)
 
     # cleanup and filters
@@ -136,8 +148,9 @@ def main():
         'entry_credit', 'exit_intrinsic', 'total_pnl', 'return_pct'
     ]
     out2.drop(columns=to_drop, inplace=True, errors='ignore')
-    out2 = out2[out2["is_winner_pred"] == 1]
-    out2 = out2[out2["is_tail_pred"] == 0]
+    out2["verdict"] = (out2["is_winner_pred"] == 1) & (out2["is_tail_pred"] == 0)
+    #out2 = out2[out2["is_winner_pred"] == 1]
+    #out2 = out2[out2["is_tail_pred"] == 0]
     out2.to_csv(out_path, index=False)
 
     # log processing information
