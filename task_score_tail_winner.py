@@ -13,7 +13,7 @@ from datetime import datetime, time
 
 from dotenv import load_dotenv
 
-from a02merge_macro_features import per_symbol_price_feat
+from a02merge_macro_features import _load_vix, per_symbol_price_feat, add_macro_features
 from service.get_vix import get_current_vix, init_driver, url_vix
 from service.preprocess import merge_gex
 from service.utils import fill_features_with_training_medians, prep_tail_training_df, prep_winner_like_training
@@ -24,7 +24,7 @@ load_dotenv()
 TAIL_MODEL_IN = "output/tails_train/v6b_ne/tail_model_gex_v6b_ne_cut05.pkl"
 TAIL_KEEP_PROBA_COL = "tail_proba"
 #WINNER_MODEL_IN = "output/winner/model_pack.pkl"
-WINNER_MODEL_IN = "output/winner_train/v6_oof_ne/winner_classifier_model_v6_oof_ne.pkl"
+WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited/winner_classifier_model_v6_oof_ne.pkl"
 WINNER_PROBA_COL = "winner_proba"
 
 PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()  
@@ -68,6 +68,9 @@ def main(Test=False):
         return
 
     option_file = latest_file_with_path
+    if Test:
+        option_file = "option/put/unprocessed/coveredPut_2025-08-08_11_00.csv"
+        #target_minutes = 16 * 60 + 30
 
     # construct an output file path
     hour, minute = option_file.replace(".csv", "").split("_")[-2:]
@@ -76,32 +79,19 @@ def main(Test=False):
     out_dir = "prod/output"
     os.makedirs(out_dir, exist_ok=True)
     out_path = f"{out_dir}/scored_tail_winner_test_{target_date}_{time_str}.csv"
+    if Test:
+        out_path = f"{out_dir}/scored_tail_winner_test_{target_date}_{time_str}_test.csv"
 
     gex_base_dir = os.getenv("GEX_BASE_DIR")
     df_o = merge_gex(option_file, gex_base_dir, target_minutes=target_minutes)
 
-    # add macro features
+    # add macro features using shared function
     today = datetime.now()
-    # get VIX
-    driver = init_driver(headless=True)
-    vix_value = get_current_vix(url_vix, driver)
-    try:
-        vix_value = float(vix_value)
-    except ValueError:
-        vix_value = 16.35
-    vix_df = pd.DataFrame({"trade_date": [today], "VIX": [vix_value]})
+    # get VIX (handles both real-time and historic)
+    vix_df = get_vix(today, target_date=datetime.strptime(target_date, "%Y-%m-%d").date())
 
-    need_symbol = "baseSymbol" in df_o.columns
-    # TO FIX
-    d = per_symbol_price_feat(PX_BASE_DIR, df_o, vix_df, need_symbol)
-
-    # Gap between previous close and current underlying price
-    if "underlyingLastPrice" in d.columns:
-        d["prev_close_minus_ul"] = d["prev_close"] - d["underlyingLastPrice"]
-        d["prev_close_minus_ul_pct"] = (d["prev_close"] - d["underlyingLastPrice"]) / d["underlyingLastPrice"].replace(0, np.nan)
-    else:
-        d["prev_close_minus_ul"] = np.nan
-        d["prev_close_minus_ul_pct"] = np.nan
+    # Use shared macro features function with pre-built VIX DataFrame
+    d = add_macro_features(df_o, vix_df, PX_BASE_DIR)
     d_final = d
 
     # end of add macro features
@@ -111,18 +101,18 @@ def main(Test=False):
 
 
     # tail scoring
-    pack_tl = joblib.load(TAIL_MODEL_IN)
-    clf_tl = pack_tl["model"]
-    feats = pack_tl["features"]
-    med = pack_tl.get("medians", None)
+    #pack_tl = joblib.load(TAIL_MODEL_IN)
+    #clf_tl = pack_tl["model"]
+    #feats = pack_tl["features"]
+    #med = pack_tl.get("medians", None)
     df = prep_tail_training_df(df_o)
-    X_tl, medians = fill_features_with_training_medians(df, feats)
+    #X_tl, medians = fill_features_with_training_medians(df, feats)
 
-    proba = clf_tl.predict_proba(X_tl)[:, 1]
+    #proba = clf_tl.predict_proba(X_tl)[:, 1]
     out = df.copy()
-    out[TAIL_KEEP_PROBA_COL] = proba
-    thresh = 0.03
-    out["is_tail_pred"] = (out[TAIL_KEEP_PROBA_COL] >= thresh).astype(int)
+    #out[TAIL_KEEP_PROBA_COL] = proba
+    #thresh = 0.03
+    #out["is_tail_pred"] = (out[TAIL_KEEP_PROBA_COL] >= thresh).astype(int)
 
     # winner scoring
     pack_wc = joblib.load(WINNER_MODEL_IN)
@@ -130,7 +120,8 @@ def main(Test=False):
     feats = pack_wc["features"]
     medians = pack_wc.get("medians", None)
     impute_missing = bool(pack_wc.get("impute_missing", bool(medians is not None)))
-    Xwc, mask = prep_winner_like_training(df, feats, medians=medians, impute_missing=impute_missing)
+    #Xwc, mask = prep_winner_like_training(df, feats, medians=medians, impute_missing=impute_missing)
+    Xwc, mask = prep_winner_like_training(d, feats, medians=medians, impute_missing=impute_missing)
 
     proba = clf_wc.predict_proba(Xwc)[:, 1]
     out2 = out.loc[mask].copy()
@@ -148,7 +139,7 @@ def main(Test=False):
         'entry_credit', 'exit_intrinsic', 'total_pnl', 'return_pct'
     ]
     out2.drop(columns=to_drop, inplace=True, errors='ignore')
-    out2["verdict"] = (out2["is_winner_pred"] == 1) & (out2["is_tail_pred"] == 0)
+    #out2["verdict"] = (out2["is_winner_pred"] == 1) & (out2["is_tail_pred"] == 0)
     #out2 = out2[out2["is_winner_pred"] == 1]
     #out2 = out2[out2["is_tail_pred"] == 0]
     out2.to_csv(out_path, index=False)
@@ -160,6 +151,27 @@ def main(Test=False):
         f.write(f"{latest_file}\n")
     print(f"Wrote scored file: {out_path}")
 
+def get_vix(today, target_date=None):
+    if target_date is not None:
+        if target_date != today.date():
+            VIX_CSV = os.getenv("VIX_CSV", "").strip() or None
+            start_date = target_date - pd.Timedelta(days=1)
+            end_date   = target_date + pd.Timedelta(days=1)
+            vix = _load_vix(VIX_CSV,start_date, end_date)
+            vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
+            print(f"Target date {target_date} is not today {today.date()}, skip VIX fetch.")
+            return vix_df
+
+    driver = init_driver(headless=True)
+    vix_value = get_current_vix(url_vix, driver)
+    try:
+        vix_value = float(vix_value)
+    except ValueError:
+        vix_value = 16.35
+    vix_df = pd.DataFrame({"trade_date": [today], "VIX": [vix_value]})
+    return vix_df
+
 
 if __name__ == '__main__':
+    #main(Test=True)
     main()
