@@ -138,28 +138,8 @@ def main():
     if "tradeTime" not in df.columns or "expirationDate" not in df.columns:
         raise SystemExit("Expected columns tradeTime and expirationDate in labeled_trades_normal.csv")
 
-    # Parse dates and derive trade_date (calendar day)
-    df["tradeTime"] = _coerce_dt(df["tradeTime"])
-    df["expirationDate"] = _coerce_dt(df["expirationDate"])
-    df["trade_date"] = df["tradeTime"].dt.floor("D")
-
-    # VIX (global)
-    start_date = df["trade_date"].min() # - pd.Timedelta(days=60)
-    end_date   = df["trade_date"].max() + pd.Timedelta(days=1)
-    vix = _load_vix(VIX_CSV,start_date, end_date)
-    vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
-
-    # Per-symbol price features
-    need_symbol = "baseSymbol" in df.columns
-    d = per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol)
-
-    # Gap between previous close and current underlying price
-    if "underlyingLastPrice" in d.columns:
-        d["prev_close_minus_ul"] = d["prev_close"] - d["underlyingLastPrice"]
-        d["prev_close_minus_ul_pct"] = (d["prev_close"] - d["underlyingLastPrice"]) / d["underlyingLastPrice"].replace(0, np.nan)
-    else:
-        d["prev_close_minus_ul"] = np.nan
-        d["prev_close_minus_ul_pct"] = np.nan
+    # Use shared macro features function
+    d = add_macro_features(df, VIX_CSV, PX_BASE_DIR)
 
     # Save
     d.to_csv(out_csv, index=False)
@@ -175,6 +155,51 @@ def main():
         "out_csv": out_csv
     }
     print(json.dumps(rep, indent=2))
+
+def add_macro_features(df, vix_df_or_csv_path, px_base_dir):
+    """
+    Shared function to add macro features to a dataframe.
+    Extracted from the main() function to be reusable by other scripts.
+
+    Args:
+        df: Input dataframe with tradeTime column
+        vix_df_or_csv_path: Either a VIX DataFrame with columns [trade_date, VIX],
+                           or a string path to VIX CSV file
+        px_base_dir: Directory containing price data (PX_BASE_DIR environment variable)
+
+    Returns:
+        DataFrame with macro features added
+    """
+    # Parse dates and derive trade_date (calendar day)
+    df = df.copy()
+    df["tradeTime"] = _coerce_dt(df["tradeTime"])
+    df["expirationDate"] = _coerce_dt(df["expirationDate"])
+    df["trade_date"] = df["tradeTime"].dt.floor("D")
+
+    # VIX (global) - handle both DataFrame and CSV path
+    if isinstance(vix_df_or_csv_path, pd.DataFrame):
+        # Pre-built VIX DataFrame (from task_score_tail_winner.py)
+        vix_df = vix_df_or_csv_path
+    else:
+        # CSV path (from a02merge_macro_features.py)
+        start_date = df["trade_date"].min() # - pd.Timedelta(days=60)
+        end_date   = df["trade_date"].max() + pd.Timedelta(days=1)
+        vix = _load_vix(vix_df_or_csv_path, start_date, end_date)
+        vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
+
+    # Per-symbol price features
+    need_symbol = "baseSymbol" in df.columns
+    d = per_symbol_price_feat(px_base_dir, df, vix_df, need_symbol)
+
+    # Gap between previous close and current underlying price
+    if "underlyingLastPrice" in d.columns:
+        d["prev_close_minus_ul"] = d["prev_close"] - d["underlyingLastPrice"]
+        d["prev_close_minus_ul_pct"] = (d["prev_close"] - d["underlyingLastPrice"]) / d["underlyingLastPrice"].replace(0, np.nan)
+    else:
+        d["prev_close_minus_ul"] = np.nan
+        d["prev_close_minus_ul_pct"] = np.nan
+
+    return d
 
 def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol):
     if not need_symbol:

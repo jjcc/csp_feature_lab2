@@ -136,10 +136,13 @@ def _parse_bool(val: str, default=False):
 
 # ---------- Core ----------
 
-def build_label(df: pd.DataFrame, target_col: str) -> pd.Series:
+def build_label(df: pd.DataFrame, target_col: str, epsilon:float = 0.00) -> pd.Series:
+    '''
+    Build binary label series from target_col by thresholding at epsilon.
+    '''
     if target_col not in df.columns:
         raise ValueError(f"Column `{target_col}` not found.")
-    return (pd.to_numeric(df[target_col], errors="coerce") > 0).astype(int)
+    return (pd.to_numeric(df[target_col], errors="coerce") > epsilon).astype(int)
 
 def select_features(df: pd.DataFrame, explicit: List[str], id_cols: List[str]) -> List[str]:
     if explicit:
@@ -362,6 +365,8 @@ def main():
     proba_oof = np.full(len(df), np.nan, dtype=float)
     fold_idx  = np.full(len(df), -1, dtype=int)
 
+    now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+
     for k, (tr, va) in enumerate(split_iter):
         if IMPUTE_MISSING:
             medians_k = compute_medians(df.iloc[tr], feats)
@@ -403,6 +408,11 @@ def main():
     # OOF metrics
     roc_auc = roc_auc_score(y, proba_oof) if len(np.unique(y)) > 1 else float("nan")
     pr_auc  = average_precision_score(y, proba_oof)
+
+    then = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    time_spent = pd.to_datetime(then) - pd.to_datetime(now)
+    print(f"Completed OOF scoring ({len(df)} rows, {OOF_FOLDS} folds, {split_kind}) in {time_spent}")
+    print(f"OOF AUC-ROC={roc_auc:.4f}; AUC-PR={pr_auc:.4f}")
 
     # PR vs coverage on OOF
     precision, recall, thresholds = precision_recall_curve(y, proba_oof)
@@ -446,6 +456,7 @@ def main():
     plt.savefig(os.path.join(OUTDIR, "precision_recall_coverage.png"), dpi=150)
     plt.close()
 
+    now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
     # Train FINAL model on ALL data for export
     if IMPUTE_MISSING:
         X_all = apply_impute(df, feats, medians_global if medians_global is not None else compute_medians(df, feats))
@@ -464,6 +475,10 @@ def main():
         class_weight=CLASS_WEIGHT,
     )
     clf_final.fit(X_all, y)
+
+    then = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    time_spent = pd.to_datetime(then) - pd.to_datetime(now)
+    print(f"Trained final model on ALL data ({len(df)} rows) in {time_spent}")
 
     # Save feature importances (using final model & X_all)
     try:

@@ -29,14 +29,15 @@ def pick_threshold_from_coverage(proba, coverage):
 def main():
     load_env_default()
 
-    #CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
+    CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
     #CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("MACRO_FEATURE_CSV", "./candidates.csv"))
-    CSV_IN  = os.getenv("OUTPUT_CSV", "./candidates.csv")
-    #CSV_IN  =  os.getenv("MACRO_FEATURE_CSV", "./candidates.csv")
+
+    #CSV_IN  = os.getenv("OUTPUT_CSV", "./candidates.csv")
+
     #Other model want to score
-    MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
+    #MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
     #current training model
-    #MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
+    MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
     CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
     PROBA_COL = os.getenv("WINNER_PROBA_COL", "prob_winner")
     PRED_COL  = os.getenv("WINNER_PRED_COL", "pred_winner")
@@ -99,7 +100,9 @@ def main():
 
     y = None
     if TRAIN_TARGET in out.columns:
-        y = (pd.to_numeric(out[TRAIN_TARGET], errors="coerce") > 0).astype(int).values
+        epsion = float(os.getenv("WINNER_TRAIN_EPSILON", "0.00"))
+        #y = (pd.to_numeric(out[TRAIN_TARGET], errors="coerce") > 0).astype(int).values
+        y = (pd.to_numeric(out[TRAIN_TARGET], errors="coerce") > epsion).astype(int).values
     elif "win" in out.columns:
         y = out["win"].astype(int).values
 
