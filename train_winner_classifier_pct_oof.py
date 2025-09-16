@@ -268,6 +268,49 @@ def save_feature_importances(clf, X_ref, y_ref, feats, outdir):
     return fi_df
 
 
+def make_model(k_seed: int, model_type: str = "rf"):
+    if model_type == "lgbm":
+        from lightgbm import LGBMClassifier
+        return LGBMClassifier(
+            n_estimators=int(os.getenv("LGBM_N_ESTIMATORS", "2000")),
+            learning_rate=float(os.getenv("LGBM_LR", "0.05")),
+            num_leaves=int(os.getenv("LGBM_NUM_LEAVES", "63")),
+            max_depth=int(os.getenv("LGBM_MAX_DEPTH", "-1")),
+            min_child_samples=int(os.getenv("LGBM_MIN_CHILD", "80")),
+            subsample=float(os.getenv("LGBM_BAGGING_FRACTION", "1.0")),           # set <1.0 only if OK for TS
+            subsample_freq=int(os.getenv("LGBM_BAGGING_FREQ", "0")),              # 0 = off (safer for TS)
+            colsample_bytree=float(os.getenv("LGBM_FEATURE_FRACTION", "0.8")),
+            reg_lambda=float(os.getenv("LGBM_L2", "5.0")),
+            objective="binary",
+            random_state=k_seed,
+            n_jobs=-1,
+        )
+    elif model_type == "catboost":
+        from catboost import CatBoostClassifier
+        return CatBoostClassifier(
+            iterations=int(os.getenv("CAT_ITERS", "4000")),
+            learning_rate=float(os.getenv("CAT_LR", "0.05")),
+            depth=int(os.getenv("CAT_DEPTH", "6")),
+            l2_leaf_reg=float(os.getenv("CAT_L2", "6.0")),
+            loss_function="Logloss",
+            eval_metric=os.getenv("CAT_EVAL_METRIC", "AUC"),
+            random_seed=k_seed,
+            verbose=False,
+            task_type=os.getenv("CAT_TASK_TYPE", "CPU"),   # or GPU
+        )
+    else:
+        from sklearn.ensemble import RandomForestClassifier
+        return RandomForestClassifier(
+            n_estimators=int(os.getenv("WINNER_CLASSIFIER_N_ESTIMATORS", "400")),
+            max_depth=_maybe_int(os.getenv("WINNER_MAX_DEPTH", "")),
+            min_samples_leaf=int(os.getenv("WINNER_MIN_SAMPLES_LEAF", "1")),
+            min_samples_split=int(os.getenv("WINNER_MIN_SAMPLES_SPLIT", "2")),
+            n_jobs=-1,
+            random_state=k_seed,
+            class_weight=_maybe_none(os.getenv("WINNER_CLASS_WEIGHT", "balanced_subsample")),
+        )
+
+
 def main():
     load_dotenv()
 
@@ -313,6 +356,12 @@ def main():
 
     TARGETS_RECALL    = _parse_list_env(os.getenv("WINNER_TARGET_RECALL", ""))
     TARGETS_PRECISION = _parse_list_env(os.getenv("WINNER_TARGET_PRECISION", ""))
+
+    MODEL_TYPE = os.getenv("WINNER_MODEL_TYPE", "rf").lower()
+    EARLY_STOPPING_ROUNDS = int(os.getenv("WINNER_EARLY_STOPPING_ROUNDS", "100"))
+    
+    # optional: parse a small validation tail inside each fold for early stopping
+    VALID_FRACTION = float(os.getenv("WINNER_VALID_FRACTION", "0.1"))
 
     # Load
     df = pd.read_csv(CSV)
@@ -384,16 +433,38 @@ def main():
         ytr = y[tr] if IMPUTE_MISSING else ytr.values
         wgtr = None if wgt is None else (wgt[tr] if IMPUTE_MISSING else wgtr.values)
 
-        clf = RandomForestClassifier(
-            n_estimators=N_ESTIMATORS,
-            max_depth=MAX_DEPTH,
-            min_samples_leaf=MIN_S_LEAF,
-            min_samples_split=MIN_S_SPLIT,
-            n_jobs=-1,
-            random_state=RANDOM_STATE + k,
-            class_weight=CLASS_WEIGHT,
-        )
-        clf.fit(Xtr, ytr, sample_weight=wgtr)
+        clf = make_model(RANDOM_STATE + k, model_type=MODEL_TYPE)
+        #clf.fit(Xtr, ytr, sample_weight=wgtr)
+        use_es = MODEL_TYPE in {"lgbm","catboost"} and VALID_FRACTION > 0 and len(Xva) > 0
+        if use_es:
+            # carve a small tail from Xtr for eval to avoid peeking into Va
+            cut = int(len(Xtr) * (1.0 - VALID_FRACTION))
+            Xtr_fit, ytr_fit = Xtr.iloc[:cut], ytr[:cut]
+            Xeval,   yeval   = Xtr.iloc[cut:], ytr[cut:]
+        
+            if MODEL_TYPE == "catboost":
+                # CatBoost needs Pool for weights
+                #from catboost import Pool
+                #train_pool = Pool(Xtr_fit, ytr_fit, weight=None if wgtr is None else wgtr[:cut])
+                #eval_pool  = Pool(Xeval, yeval)
+                clf.fit(
+                    Xtr_fit, ytr_fit,
+                    sample_weight=(wgtr[:cut] if wgtr is not None else None),
+                    eval_set=(Xeval, yeval),
+                    use_best_model=True,
+                    early_stopping_rounds=EARLY_STOPPING_ROUNDS,
+                    verbose=False
+                )
+            else:
+                clf.fit(
+                    Xtr_fit, ytr_fit,
+                    sample_weight=wgtr[:cut] if wgtr is not None else None,
+                    eval_set=[(Xeval, yeval)],
+                    eval_metric=("aucpr" if MODEL_TYPE=="lgbm" else "PRAUC"),
+                    callbacks=None if MODEL_TYPE=="catboost" else [__import__("lightgbm").early_stopping(EARLY_STOPPING_ROUNDS, verbose=False)]
+                )
+        else:
+            clf.fit(Xtr, ytr, sample_weight=wgtr)
 
         pva = clf.predict_proba(Xva)[:, 1]
         proba_oof[va] = pva
@@ -465,15 +536,7 @@ def main():
         X_all, y_all, _ = drop_na_rows(X_all, pd.Series(y), None)
         y = y_all.values  # replace with filtered y if needed
 
-    clf_final = RandomForestClassifier(
-        n_estimators=N_ESTIMATORS,
-        max_depth=MAX_DEPTH,
-        min_samples_leaf=MIN_S_LEAF,
-        min_samples_split=MIN_S_SPLIT,
-        n_jobs=-1,
-        random_state=RANDOM_STATE,
-        class_weight=CLASS_WEIGHT,
-    )
+    clf_final = make_model(RANDOM_STATE, model_type=MODEL_TYPE)
     clf_final.fit(X_all, y)
 
     then = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -515,6 +578,7 @@ def main():
     # Save model pack
     pack = {
         "model": clf_final,
+        "model_type": os.getenv("WINNER_MODEL_TYPE","rf"),
         "features": feats,
         "medians": (compute_medians(df, feats) if IMPUTE_MISSING else None),
         "impute_missing": bool(IMPUTE_MISSING),
@@ -523,6 +587,7 @@ def main():
         "label": f"{TRAIN_TARGET} > 0",
         "oof_scores_path": os.path.join(OUTDIR, "winner_scores_oof.csv"),
     }
+    MODEL_NAME = f"{MODEL_NAME}_{MODEL_TYPE}.pkl"
     joblib.dump(pack, os.path.join(OUTDIR, MODEL_NAME))
 
     print(f"✅ Winner classifier trained with OOF. ROC AUC(O): {roc_auc:.4f}, PR AUC(O): {pr_auc:.4f}")
