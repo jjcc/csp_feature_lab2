@@ -51,7 +51,8 @@ class TestPreprocess(unittest.TestCase):
         target_minutes = target_t.hour * 60 + target_t.minute
 
         self.csv_path = "test/data/put/coveredPut_test.csv"
-        merged = merge_gex(self.csv_path, self.gex_base_dir, target_minutes=target_minutes)  # 11:00am = 660 minutes
+        trades = pd.read_csv(self.csv_path)
+        merged = merge_gex(trades, self.gex_base_dir, target_minutes=target_minutes)  # 11:00am = 660 minutes
         out_path = f"{out_dir}/merged_test.csv"
         merged.to_csv(out_path, index=False)
 
@@ -100,7 +101,8 @@ class TestPreprocess(unittest.TestCase):
         self.assertIsInstance(merged, pd.DataFrame, merged)
 
     def merge_option_ges(self,target_minutes, gex_base_dir, option_file, out_path):
-        merged = merge_gex(option_file, gex_base_dir, target_minutes=target_minutes)
+        trades = pd.read_csv(option_file)
+        merged = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
         # got "merged_test_2025-08-13.csv"
         merged.to_csv(out_path, index=False)
         return merged

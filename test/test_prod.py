@@ -67,7 +67,8 @@ class TestProd(unittest.TestCase):
             return
         gex_base_dir = os.getenv("GEX_BASE_DIR")
 
-        df_o = merge_gex(latest_file_with_path, gex_base_dir, target_minutes=target_minutes)
+        trades = pd.read_csv(latest_file_with_path)
+        df_o = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
         print(df_o.head())
 
         #with open(process_log, "a") as f:
@@ -125,7 +126,8 @@ class TestProd(unittest.TestCase):
         out_path = f"prod/output/scored_tail_winner_test_{target_date}_{time_str}.csv"
 
         gex_base_dir = os.getenv("GEX_BASE_DIR")
-        df_o = merge_gex(option_file, gex_base_dir, target_minutes=target_minutes)
+        trades = pd.read_csv(option_file)
+        df_o = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
 
         pack_tl = joblib.load(TAIL_MODEL_IN)
         clf_tl = pack_tl["model"]

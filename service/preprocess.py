@@ -145,8 +145,7 @@ def compute_gex_features(df_gex: pd.DataFrame, ul_price: float) -> dict:
 
     return out
 
-def merge_gex(csv_path, base_dir, target_minutes):
-    trades = pd.read_csv(csv_path)
+def merge_gex(trades, base_dir, target_minutes):
     need = ["baseSymbol","tradeTime","underlyingLastPrice"]
     for c in need:
         if c not in trades.columns:

@@ -85,10 +85,11 @@ def main(Test=False):
     os.makedirs(out_dir, exist_ok=True)
     out_path = f"{out_dir}/scored_tail_winner_test_{target_date}_{time_str}.csv"
     if Test:
-        out_path = f"{out_dir}/scored_tail_winner_test_{target_date}_{time_str}_test.csv"
+        out_path = f"{out_dir}/scored_tail_winner_test_{target_date}_{time_str}_test2.csv"
 
     gex_base_dir = os.getenv("GEX_BASE_DIR")
-    df_o = merge_gex(option_file, gex_base_dir, target_minutes=target_minutes)
+    trades = pd.read_csv(option_file)
+    df_o = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
 
     # add macro features using shared function
     today = datetime.now()
@@ -124,7 +125,6 @@ def main(Test=False):
     feats = pack_wc["features"]
     medians = pack_wc.get("medians", None)
     impute_missing = bool(pack_wc.get("impute_missing", bool(medians is not None)))
-    #Xwc, mask = prep_winner_like_training(df, feats, medians=medians, impute_missing=impute_missing)
     Xwc, mask = prep_winner_like_training(out, feats, medians=medians, impute_missing=impute_missing)
 
     proba = clf_wc.predict_proba(Xwc)[:, 1]
@@ -140,7 +140,9 @@ def main(Test=False):
         'baseSymbolType', 'expirationDate',
         'strike', 'moneyness', 'breakEvenBid', 'percentToBreakEvenBid', 'tradeTime', 'symbol_norm', 'impliedVolatilityRank1y',
         'delta', 'breakEvenProbability', 'expirationType', 'symbolType',
-        'entry_credit', 'exit_intrinsic', 'total_pnl', 'return_pct'
+        'entry_credit', 'exit_intrinsic', 'total_pnl', 'return_pct',
+        'ret_2d', 'ret_5d', 'ret_2d_norm', 'ret_5d_norm','prev_close','prev_close_minus_ul','prev_close_minus_ul_pct',
+        'log1p_DTE','VIX','bid'
     ]
     out2.drop(columns=to_drop, inplace=True, errors='ignore')
     #out2["verdict"] = (out2["is_winner_pred"] == 1) & (out2["is_tail_pred"] == 0)
@@ -177,5 +179,5 @@ def get_vix(today, target_date=None):
 
 
 if __name__ == '__main__':
-    #main(Test=True)
-    main()
+    main(Test=True)
+    #main()
