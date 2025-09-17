@@ -24,7 +24,8 @@ load_dotenv()
 TAIL_MODEL_IN = "output/tails_train/v6b_ne/tail_model_gex_v6b_ne_cut05.pkl"
 TAIL_KEEP_PROBA_COL = "tail_proba"
 #WINNER_MODEL_IN = "output/winner/model_pack.pkl"
-WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited/winner_classifier_model_v6_oof_ne.pkl"
+#WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited/winner_classifier_model_v6_oof_ne.pkl"
+WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited_w_lgbm/winner_classifier_v6_oof_ne_w_lgbm.pkl"
 WINNER_PROBA_COL = "winner_proba"
 
 PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()  
@@ -70,6 +71,10 @@ def main(Test=False):
     option_file = latest_file_with_path
     if Test:
         option_file = "option/put/unprocessed/coveredPut_2025-08-08_11_00.csv"
+        latest_file_time = option_file.split("_")[-2:]
+        latest_file_time = ":".join(latest_file_time).replace(".csv", "")
+        target_t = parse_target_time(latest_file_time)
+        target_minutes = target_t.hour * 60 + target_t.minute
         #target_minutes = 16 * 60 + 30
 
     # construct an output file path
@@ -91,8 +96,7 @@ def main(Test=False):
     vix_df = get_vix(today, target_date=datetime.strptime(target_date, "%Y-%m-%d").date())
 
     # Use shared macro features function with pre-built VIX DataFrame
-    d = add_macro_features(df_o, vix_df, PX_BASE_DIR)
-    d_final = d
+    df_o = add_macro_features(df_o, vix_df, PX_BASE_DIR)
 
     # end of add macro features
     # get next earning and previous earning
@@ -121,12 +125,12 @@ def main(Test=False):
     medians = pack_wc.get("medians", None)
     impute_missing = bool(pack_wc.get("impute_missing", bool(medians is not None)))
     #Xwc, mask = prep_winner_like_training(df, feats, medians=medians, impute_missing=impute_missing)
-    Xwc, mask = prep_winner_like_training(d, feats, medians=medians, impute_missing=impute_missing)
+    Xwc, mask = prep_winner_like_training(out, feats, medians=medians, impute_missing=impute_missing)
 
     proba = clf_wc.predict_proba(Xwc)[:, 1]
     out2 = out.loc[mask].copy()
     out2[WINNER_PROBA_COL] = proba
-    thresh = 0.85 # 0.85 get 90 win rate
+    thresh = 0.95 # 
     out2["is_winner_pred"] = (out2[WINNER_PROBA_COL] >= thresh).astype(int)
 
     # cleanup and filters

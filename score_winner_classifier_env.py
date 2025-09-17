@@ -37,7 +37,9 @@ def main():
     #Other model want to score
     #MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
     #current training model
+    MODEL_TYPE = os.getenv("WINNER_MODEL_TYPE","lgbm").strip().lower()  # options: lgbm, rf, catboost
     MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
+    MODEL_IN = f"{MODEL_IN}_{MODEL_TYPE}.pkl"
     CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
     PROBA_COL = os.getenv("WINNER_PROBA_COL", "prob_winner")
     PRED_COL  = os.getenv("WINNER_PRED_COL", "pred_winner")
@@ -54,6 +56,7 @@ def main():
     targets_rec  = [float(x.strip()) for x in TARGET_RECALL.split(",") if x.strip()] if TARGET_RECALL else []
 
     pack = joblib.load(MODEL_IN)
+    print(f"Loaded model from {MODEL_IN}")
     clf = pack["model"]
     feats = pack["features"]
     medians = pack.get("medians", None)
