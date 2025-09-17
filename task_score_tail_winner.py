@@ -142,7 +142,7 @@ def main(Test=False):
         'delta', 'breakEvenProbability', 'expirationType', 'symbolType',
         'entry_credit', 'exit_intrinsic', 'total_pnl', 'return_pct',
         'ret_2d', 'ret_5d', 'ret_2d_norm', 'ret_5d_norm','prev_close','prev_close_minus_ul','prev_close_minus_ul_pct',
-        'log1p_DTE','VIX','bid'
+        'log1p_DTE','bid'
     ]
     out2.drop(columns=to_drop, inplace=True, errors='ignore')
     #out2["verdict"] = (out2["is_winner_pred"] == 1) & (out2["is_tail_pred"] == 0)
