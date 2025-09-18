@@ -1,6 +1,6 @@
 
 #!/usr/bin/env python3
-# Merge GEX features into labeled_trades.csv
+# Merge GEX features into  raw data defined in BASIC_CSV
 import os
 import re
 import json
@@ -24,10 +24,6 @@ def parse_target_time(s: str) -> time:
 
 def main():
     load_dotenv()
-    #ap = argparse.ArgumentParser()
-    #ap.add_argument("--csv", default="labeled_trades.csv", help="Path to labeled_trades.csv")
-    #ap.add_argument("--out", default="labeled_trades_with_gex.csv", help="Output CSV path")
-    #args = ap.parse_args()
 
     out_dir = os.getenv("OUT_DIR", "output")
     csv_input = os.getenv("BASIC_CSV")
