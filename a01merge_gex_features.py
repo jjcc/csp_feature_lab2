@@ -44,7 +44,8 @@ def main():
     target_t = parse_target_time(target_time_str)
     target_minutes = target_t.hour * 60 + target_t.minute
 
-    merged = merge_gex(csv_path, base_dir, target_minutes)
+    trades = pd.read_csv(csv_path)
+    merged = merge_gex(trades, base_dir, target_minutes)
 
     merged.to_csv(out_path, index=False)
 

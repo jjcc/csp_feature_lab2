@@ -172,12 +172,14 @@ def get_vix(today, target_date=None):
     vix_value = get_current_vix(url_vix, driver)
     try:
         vix_value = float(vix_value)
+        today_date = today.date()
+        today_date = pd.to_datetime(today_date)
     except ValueError:
         vix_value = 16.35
-    vix_df = pd.DataFrame({"trade_date": [today], "VIX": [vix_value]})
+    vix_df = pd.DataFrame({"trade_date": [today_date], "VIX": [vix_value]})
     return vix_df
 
 
 if __name__ == '__main__':
-    main(Test=True)
-    #main()
+    #main(Test=True)
+    main()
