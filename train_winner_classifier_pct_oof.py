@@ -24,13 +24,13 @@ Key behaviors:
 
 
 
-Minimal-mod OOF version of your winner classifier trainer.
+Minimal-mod OOF version of winner classifier trainer.
 - Uses OOF CV instead of a single train/test split.
 - If 'trade_date' column exists -> TimeSeriesSplit; else StratifiedKFold.
 - Saves OOF predictions, OOF metrics, and trains a final model on ALL data for export.
 
 Inputs via .env (same as original):
-  WINNER_INPUT                          # CSV path (or OUTPUT_CSV if you prefer your enriched output)
+  WINNER_INPUT                          # CSV path (or OUTPUT_CSV if prefer enriched output)
   WINNER_OUTPUT_DIR
   WINNER_FEATURES                       # optional explicit features (comma or JSON)
   WINNER_ID_COLS                        # optional ID columns
@@ -314,10 +314,10 @@ def make_model(k_seed: int, model_type: str = "rf"):
 def main():
     load_dotenv()
 
+    OUTDIR = os.getenv("WINNER_OUTPUT_DIR")
     # Inputs (required)
     #CSV = os.getenv("WINNER_INPUT") # from unseen
-    CSV= os.getenv("OUTPUT_CSV") # from enriched
-    OUTDIR = os.getenv("WINNER_OUTPUT_DIR")
+    CSV= os.getenv("OUTPUT_DIR") + "/" + os.getenv("OUTPUT_CSV") # from enriched
     MODEL_NAME = os.getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
 
     if not CSV or not OUTDIR:
