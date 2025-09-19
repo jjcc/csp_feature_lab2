@@ -81,57 +81,250 @@ from service.preprocess import add_dte_and_normalized_returns
 from sklearn.inspection import permutation_importance
 
 
+# ---------- Configuration ----------
+
+class WinnerClassifierConfig:
+    """Configuration parser for Winner Classifier training."""
+
+    def __init__(self):
+        load_dotenv()
+        self._parse_config()
+
+    def _parse_list_env(self, val: str) -> List[float]:
+        """Return list of floats parsed from JSON or comma-separated string."""
+        if val is None:
+            return []
+        s = val.strip()
+        if not s:
+            return []
+        try:
+            arr = json.loads(s)
+            if isinstance(arr, list):
+                return [float(x) for x in arr]
+        except Exception:
+            pass
+        return [float(x.strip()) for x in s.split(",") if x.strip()]
+
+    def _parse_str_list(self, val: str) -> List[str]:
+        """Return list of strings parsed from JSON or comma-separated string."""
+        if val is None:
+            return []
+        s = val.strip()
+        if not s:
+            return []
+        try:
+            arr = json.loads(s)
+            if isinstance(arr, list):
+                return [str(x) for x in arr]
+        except Exception:
+            pass
+        return [x.strip() for x in s.split(",") if x.strip()]
+
+    def _maybe_none(self, val: str):
+        """Return None if value is empty string."""
+        if val is None or str(val).strip() == "":
+            return None
+        return val
+
+    def _maybe_int(self, val: str):
+        """Parse integer or return None if empty."""
+        return None if self._maybe_none(val) is None else int(val)
+
+    def _maybe_float(self, val: str):
+        """Parse float or return None if empty."""
+        return None if self._maybe_none(val) is None else float(val)
+
+    def _parse_bool(self, val: str, default=False):
+        """Parse boolean from string."""
+        if val is None:
+            return default
+        return str(val).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    def _parse_config(self):
+        """Parse all configuration from environment variables."""
+        # I/O paths
+        self.output_dir = os.getenv("WINNER_OUTPUT_DIR")
+        self.input_csv = os.getenv("OUTPUT_DIR") + "/" + os.getenv("OUTPUT_CSV")
+        self.model_name = os.getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
+
+        # Features
+        earning_feats = ["is_earnings_week", "is_earnings_window", "post_earnings_within_3d"]
+        self.features = BASE_FEATS + NEW_FEATS + ["gex_neg", "gex_center_abs_strike", "gex_total_abs"]
+        self.id_cols = self._parse_str_list(os.getenv("WINNER_ID_COLS"))
+
+        # Model parameters
+        self.random_state = int(os.getenv("WINNER_RANDOM_STATE", "42"))
+        self.n_estimators = int(os.getenv("WINNER_CLASSIFIER_N_ESTIMATORS", "400"))
+        self.class_weight = self._maybe_none(os.getenv("WINNER_CLASS_WEIGHT", "balanced_subsample"))
+        self.max_depth = self._maybe_int(os.getenv("WINNER_MAX_DEPTH", ""))
+        self.min_samples_leaf = int(os.getenv("WINNER_MIN_SAMPLES_LEAF", "1"))
+        self.min_samples_split = int(os.getenv("WINNER_MIN_SAMPLES_SPLIT", "2"))
+        self.model_type = os.getenv("WINNER_MODEL_TYPE", "rf").lower()
+
+        # Preprocessing
+        self.impute_missing = self._parse_bool(os.getenv("WINNER_IMPUTE_MISSING", "1"))
+        self.use_weights = self._parse_bool(os.getenv("WINNER_USE_WEIGHTS", "1"))
+        self.weight_alpha = float(os.getenv("WINNER_WEIGHT_ALPHA", "0.02"))
+        self.weight_min = float(os.getenv("WINNER_WEIGHT_MIN", "0.5"))
+        self.weight_max = float(os.getenv("WINNER_WEIGHT_MAX", "10.0"))
+
+        # Training
+        self.train_target = os.getenv("WINNER_TRAIN_TARGET", "return_mon").strip()
+        self.oof_folds = int(os.getenv("WINNER_OOF_FOLDS", "5"))
+        self.time_series = os.getenv("WINNER_TIME_SERIES", "auto").strip().lower()
+
+        # Evaluation
+        self.targets_recall = self._parse_list_env(os.getenv("WINNER_TARGET_RECALL", ""))
+        self.targets_precision = self._parse_list_env(os.getenv("WINNER_TARGET_PRECISION", ""))
+
+        # Early stopping (for gradient boosting models)
+        self.early_stopping_rounds = int(os.getenv("WINNER_EARLY_STOPPING_ROUNDS", "100"))
+        self.valid_fraction = float(os.getenv("WINNER_VALID_FRACTION", "0.1"))
+
+        # Validation
+        if not self.input_csv or not self.output_dir:
+            raise SystemExit("WINNER_INPUT (or OUTPUT_CSV) and WINNER_OUTPUT_DIR must be set in .env")
+
+
 # ---------- Helpers ----------
 
 def ensure_dir(path: str) -> str:
+    """Create directory if it doesn't exist."""
     os.makedirs(path, exist_ok=True)
     return path
 
-def _parse_list_env(val: str) -> List[float]:
-    """Return list of floats parsed from JSON or comma-separated string. Empty -> []"""
-    if val is None:
-        return []
-    s = val.strip()
-    if not s:
-        return []
-    try:
-        arr = json.loads(s)
-        if isinstance(arr, list):
-            return [float(x) for x in arr]
-    except Exception:
-        pass
-    # comma-separated
-    return [float(x.strip()) for x in s.split(",") if x.strip()]
 
-def _parse_str_list(val: str) -> List[str]:
-    if val is None:
-        return []
-    s = val.strip()
-    if not s:
-        return []
-    try:
-        arr = json.loads(s)
-        if isinstance(arr, list):
-            return [str(x) for x in arr]
-    except Exception:
-        pass
-    return [x.strip() for x in s.split(",") if x.strip()]
+def select_features(df: pd.DataFrame, explicit: List[str], id_cols: List[str]) -> List[str]:
+    """Select features either from explicit list or auto-detect numeric columns."""
+    if explicit:
+        for c in explicit:
+            if c not in df.columns:
+                raise ValueError(f"Feature '{c}' not in dataframe.")
+        return explicit
+    exclude = set(id_cols or [])
+    exclude.update(["return_pct", "return_mon", "return_ann"])
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    feats = [c for c in numeric_cols if c not in exclude]
+    if not feats:
+        raise ValueError("No numeric features detected. Provide WINNER_FEATURES in .env")
+    return feats
 
-def _maybe_none(val: str):
-    if val is None or str(val).strip() == "":
-        return None
-    return val
 
-def _maybe_int(val: str):
-    return None if _maybe_none(val) is None else int(val)
+# ---------- Data Preprocessing ----------
 
-def _maybe_float(val: str):
-    return None if _maybe_none(val) is None else float(val)
+class DataPreprocessor:
+    """Handles data preprocessing including feature selection, imputation, and weighting."""
 
-def _parse_bool(val: str, default=False):
-    if val is None:
-        return default
-    return str(val).strip().lower() in {"1","true","yes","y","on"}
+    def __init__(self, config: WinnerClassifierConfig):
+        self.config = config
+        self.medians_global = None
+
+    def compute_medians(self, df: pd.DataFrame, features: List[str]) -> Dict[str, float]:
+        """Compute median values for features for imputation."""
+        medians = {}
+        for c in features:
+            medians[c] = float(pd.to_numeric(df[c], errors="coerce").median())
+        return medians
+
+    def apply_impute(self, df: pd.DataFrame, features: List[str], medians: Dict[str, float]) -> pd.DataFrame:
+        """Apply median imputation to features."""
+        X = df[features].copy()
+        for c in features:
+            X[c] = pd.to_numeric(X[c], errors="coerce").fillna(medians[c])
+        return X
+
+    def drop_na_rows(self, X: pd.DataFrame, y: pd.Series, w: pd.Series = None):
+        """Drop rows with NaN values."""
+        mask = (~X.isna().any(axis=1)) & (~y.isna())
+        if w is not None:
+            return X[mask], y[mask], w[mask]
+        return X[mask], y[mask], None
+
+    def compute_sample_weights(self, df: pd.DataFrame) -> np.ndarray:
+        """Compute sample weights based on return magnitude."""
+        if not self.config.use_weights:
+            return None
+        ret = pd.to_numeric(df[self.config.train_target], errors="coerce").fillna(0.0)
+        weights = 1.0 + self.config.weight_alpha * ret.abs()
+        weights = np.clip(weights, self.config.weight_min, self.config.weight_max)
+        return weights
+
+    def prepare_data(self, df: pd.DataFrame):
+        """Main data preparation pipeline."""
+        # Add preprocessing if needed
+        df = add_dte_and_normalized_returns(df)
+
+        # Shuffle data
+        df = df.sample(frac=1, random_state=self.config.random_state).reset_index(drop=True)
+
+        # Build binary label
+        y = build_label(df, self.config.train_target)
+
+        # Select features
+        features = select_features(df, self.config.features, self.config.id_cols)
+
+        # Compute sample weights
+        weights = self.compute_sample_weights(df)
+
+        # Check if we have time series data
+        has_time = "trade_date" in df.columns
+
+        # Store global medians if using imputation
+        if self.config.impute_missing:
+            self.medians_global = self.compute_medians(df, features)
+
+        return df, y, features, weights, has_time
+
+
+# ---------- Model Factory ----------
+
+class ModelFactory:
+    """Factory class for creating different types of classifiers."""
+
+    @staticmethod
+    def create_model(config: WinnerClassifierConfig, seed_offset: int = 0):
+        """Create a classifier based on configuration."""
+        seed = config.random_state + seed_offset
+
+        if config.model_type == "lgbm":
+            from lightgbm import LGBMClassifier
+            return LGBMClassifier(
+                n_estimators=int(os.getenv("LGBM_N_ESTIMATORS", "2000")),
+                learning_rate=float(os.getenv("LGBM_LR", "0.05")),
+                num_leaves=int(os.getenv("LGBM_NUM_LEAVES", "63")),
+                max_depth=int(os.getenv("LGBM_MAX_DEPTH", "-1")),
+                min_child_samples=int(os.getenv("LGBM_MIN_CHILD", "80")),
+                subsample=float(os.getenv("LGBM_BAGGING_FRACTION", "1.0")),
+                subsample_freq=int(os.getenv("LGBM_BAGGING_FREQ", "0")),
+                colsample_bytree=float(os.getenv("LGBM_FEATURE_FRACTION", "0.8")),
+                reg_lambda=float(os.getenv("LGBM_L2", "5.0")),
+                objective="binary",
+                random_state=seed,
+                n_jobs=-1,
+            )
+        elif config.model_type == "catboost":
+            from catboost import CatBoostClassifier
+            return CatBoostClassifier(
+                iterations=int(os.getenv("CAT_ITERS", "4000")),
+                learning_rate=float(os.getenv("CAT_LR", "0.05")),
+                depth=int(os.getenv("CAT_DEPTH", "6")),
+                l2_leaf_reg=float(os.getenv("CAT_L2", "6.0")),
+                loss_function="Logloss",
+                eval_metric=os.getenv("CAT_EVAL_METRIC", "AUC"),
+                random_seed=seed,
+                verbose=False,
+                task_type=os.getenv("CAT_TASK_TYPE", "CPU"),
+            )
+        else:  # Random Forest
+            return RandomForestClassifier(
+                n_estimators=config.n_estimators,
+                max_depth=config.max_depth,
+                min_samples_leaf=config.min_samples_leaf,
+                min_samples_split=config.min_samples_split,
+                n_jobs=-1,
+                random_state=seed,
+                class_weight=config.class_weight,
+            )
 
 
 # ---------- Core ----------
@@ -144,37 +337,6 @@ def build_label(df: pd.DataFrame, target_col: str, epsilon:float = 0.00) -> pd.S
         raise ValueError(f"Column `{target_col}` not found.")
     return (pd.to_numeric(df[target_col], errors="coerce") > epsilon).astype(int)
 
-def select_features(df: pd.DataFrame, explicit: List[str], id_cols: List[str]) -> List[str]:
-    if explicit:
-        for c in explicit:
-            if c not in df.columns:
-                raise ValueError(f"Feature '{c}' not in dataframe.")
-        return explicit
-    exclude = set(id_cols or [])
-    exclude.update({"return_pct","return_mon","return_ann"})
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    feats = [c for c in numeric_cols if c not in exclude]
-    if not feats:
-        raise ValueError("No numeric features detected. Provide WINNER_FEATURES in .env")
-    return feats
-
-def compute_medians(df: pd.DataFrame, features: List[str]) -> Dict[str, float]:
-    med = {}
-    for c in features:
-        med[c] = float(pd.to_numeric(df[c], errors="coerce").median())
-    return med
-
-def apply_impute(df: pd.DataFrame, features: List[str], medians: Dict[str, float]) -> pd.DataFrame:
-    X = df[features].copy()
-    for c in features:
-        X[c] = pd.to_numeric(X[c], errors="coerce").fillna(medians[c])
-    return X
-
-def drop_na_rows(X: pd.DataFrame, y: pd.Series, w: pd.Series = None):
-    mask = (~X.isna().any(axis=1)) & (~y.isna())
-    if w is not None:
-        return X[mask], y[mask], w[mask]
-    return X[mask], y[mask], None
 
 def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
                              targets_recall: List[float],
@@ -268,297 +430,243 @@ def save_feature_importances(clf, X_ref, y_ref, feats, outdir):
     return fi_df
 
 
-def make_model(k_seed: int, model_type: str = "rf"):
-    if model_type == "lgbm":
-        from lightgbm import LGBMClassifier
-        return LGBMClassifier(
-            n_estimators=int(os.getenv("LGBM_N_ESTIMATORS", "2000")),
-            learning_rate=float(os.getenv("LGBM_LR", "0.05")),
-            num_leaves=int(os.getenv("LGBM_NUM_LEAVES", "63")),
-            max_depth=int(os.getenv("LGBM_MAX_DEPTH", "-1")),
-            min_child_samples=int(os.getenv("LGBM_MIN_CHILD", "80")),
-            subsample=float(os.getenv("LGBM_BAGGING_FRACTION", "1.0")),           # set <1.0 only if OK for TS
-            subsample_freq=int(os.getenv("LGBM_BAGGING_FREQ", "0")),              # 0 = off (safer for TS)
-            colsample_bytree=float(os.getenv("LGBM_FEATURE_FRACTION", "0.8")),
-            reg_lambda=float(os.getenv("LGBM_L2", "5.0")),
-            objective="binary",
-            random_state=k_seed,
-            n_jobs=-1,
-        )
-    elif model_type == "catboost":
-        from catboost import CatBoostClassifier
-        return CatBoostClassifier(
-            iterations=int(os.getenv("CAT_ITERS", "4000")),
-            learning_rate=float(os.getenv("CAT_LR", "0.05")),
-            depth=int(os.getenv("CAT_DEPTH", "6")),
-            l2_leaf_reg=float(os.getenv("CAT_L2", "6.0")),
-            loss_function="Logloss",
-            eval_metric=os.getenv("CAT_EVAL_METRIC", "AUC"),
-            random_seed=k_seed,
-            verbose=False,
-            task_type=os.getenv("CAT_TASK_TYPE", "CPU"),   # or GPU
-        )
-    else:
-        from sklearn.ensemble import RandomForestClassifier
-        return RandomForestClassifier(
-            n_estimators=int(os.getenv("WINNER_CLASSIFIER_N_ESTIMATORS", "400")),
-            max_depth=_maybe_int(os.getenv("WINNER_MAX_DEPTH", "")),
-            min_samples_leaf=int(os.getenv("WINNER_MIN_SAMPLES_LEAF", "1")),
-            min_samples_split=int(os.getenv("WINNER_MIN_SAMPLES_SPLIT", "2")),
-            n_jobs=-1,
-            random_state=k_seed,
-            class_weight=_maybe_none(os.getenv("WINNER_CLASS_WEIGHT", "balanced_subsample")),
-        )
 
 
-def main():
-    load_dotenv()
+# ---------- Cross-Validation ----------
 
-    OUTDIR = os.getenv("WINNER_OUTPUT_DIR")
-    # Inputs (required)
-    #CSV = os.getenv("WINNER_INPUT") # from unseen
-    CSV= os.getenv("OUTPUT_DIR") + "/" + os.getenv("OUTPUT_CSV") # from enriched
-    MODEL_NAME = os.getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
+class CrossValidator:
+    """Handles cross-validation logic and out-of-fold predictions."""
 
-    if not CSV or not OUTDIR:
-        raise SystemExit("WINNER_INPUT (or OUTPUT_CSV) and WINNER_OUTPUT_DIR must be set in .env")
+    def __init__(self, config: WinnerClassifierConfig, preprocessor: DataPreprocessor):
+        self.config = config
+        self.preprocessor = preprocessor
 
-    ensure_dir(OUTDIR)
-
-    # Optional / defaults
-    #FEATURES        = _parse_str_list(os.getenv("WINNER_FEATURES"))
-    #FEATURES        = BASE_FEATS + GEX_FEATS + NEW_FEATS
-    EARNING_FEATS = [
-        "is_earnings_week","is_earnings_window","post_earnings_within_3d"
-        ]
-    #FEATURES = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"] + EARNING_FEATS
-    # remove earning for now
-    FEATURES = BASE_FEATS + NEW_FEATS + ["gex_neg","gex_center_abs_strike","gex_total_abs"]
-
-    ID_COLS         = _parse_str_list(os.getenv("WINNER_ID_COLS"))
-    RANDOM_STATE    = int(os.getenv("WINNER_RANDOM_STATE", "42"))
-    N_ESTIMATORS    = int(os.getenv("WINNER_CLASSIFIER_N_ESTIMATORS", "400"))
-    CLASS_WEIGHT    = _maybe_none(os.getenv("WINNER_CLASS_WEIGHT", "balanced_subsample"))
-    MAX_DEPTH       = _maybe_int(os.getenv("WINNER_MAX_DEPTH", ""))
-    MIN_S_LEAF      = int(os.getenv("WINNER_MIN_SAMPLES_LEAF", "1"))
-    MIN_S_SPLIT     = int(os.getenv("WINNER_MIN_SAMPLES_SPLIT", "2"))
-
-    IMPUTE_MISSING  = _parse_bool(os.getenv("WINNER_IMPUTE_MISSING", "1"))
-    USE_WEIGHTS     = _parse_bool(os.getenv("WINNER_USE_WEIGHTS", "1"))
-    WEIGHT_ALPHA    = float(os.getenv("WINNER_WEIGHT_ALPHA", "0.02"))
-    WEIGHT_MIN      = float(os.getenv("WINNER_WEIGHT_MIN", "0.5"))
-    WEIGHT_MAX      = float(os.getenv("WINNER_WEIGHT_MAX", "10.0"))
-    TRAIN_TARGET    = os.getenv("WINNER_TRAIN_TARGET", "return_mon").strip()
-
-    # OOF controls
-    OOF_FOLDS       = int(os.getenv("WINNER_OOF_FOLDS", "5"))
-    TIME_SERIES     = os.getenv("WINNER_TIME_SERIES", "auto").strip().lower()  # 'auto' / '1' / '0'
-
-    TARGETS_RECALL    = _parse_list_env(os.getenv("WINNER_TARGET_RECALL", ""))
-    TARGETS_PRECISION = _parse_list_env(os.getenv("WINNER_TARGET_PRECISION", ""))
-
-    MODEL_TYPE = os.getenv("WINNER_MODEL_TYPE", "rf").lower()
-    EARLY_STOPPING_ROUNDS = int(os.getenv("WINNER_EARLY_STOPPING_ROUNDS", "100"))
-    
-    # optional: parse a small validation tail inside each fold for early stopping
-    VALID_FRACTION = float(os.getenv("WINNER_VALID_FRACTION", "0.1"))
-
-    # Load
-    df = pd.read_csv(CSV)
-    df = add_dte_and_normalized_returns(df)
-    if TRAIN_TARGET not in df.columns:
-        raise ValueError(f"Training target '{TRAIN_TARGET}' not found in DataFrame")
-
-    # Sort if time present
-    has_time = 'trade_date' in df.columns
-    if has_time:
-        try:
-            df['trade_date'] = pd.to_datetime(df['trade_date'])
-        except Exception:
-            pass
-        df = df.sort_values('trade_date').reset_index(drop=True)
-    else:
-        # keep original shuffle behavior when no time available
-        df = shuffle(df, random_state=RANDOM_STATE)
-
-    # Label
-    y = build_label(df, TRAIN_TARGET).astype(int).values
-
-    # Features (either explicit from .env or inferred numeric)
-    feats = select_features(df, FEATURES, ID_COLS)
-
-    # Weights (optional)
-    wgt = None
-    if USE_WEIGHTS:
-        ret = pd.to_numeric(df[TRAIN_TARGET], errors="coerce").fillna(0.0)
-        wgt = 1.0 + WEIGHT_ALPHA * ret.abs()
-        wgt = np.clip(wgt, WEIGHT_MIN, WEIGHT_MAX).values
-
-    # Medians & impute
-    # Minimal-change approach: global medians used per-fold (OK for RF OOF scoring).
-    medians_global = None
-    if IMPUTE_MISSING:
-        medians_global = compute_medians(df, feats)
-
-    # Prepare CV
-    if (TIME_SERIES == '1') or (TIME_SERIES == 'auto' and has_time):
-        splitter = TimeSeriesSplit(n_splits=OOF_FOLDS)
-        split_iter = splitter.split(df)
-        split_kind = "TimeSeriesSplit"
-    else:
-        splitter = StratifiedKFold(n_splits=OOF_FOLDS, shuffle=True, random_state=RANDOM_STATE)
-        split_iter = splitter.split(df, y)
-        split_kind = "StratifiedKFold"
-
-    # OOF
-    proba_oof = np.full(len(df), np.nan, dtype=float)
-    fold_idx  = np.full(len(df), -1, dtype=int)
-
-    now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    for k, (tr, va) in enumerate(split_iter):
-        if IMPUTE_MISSING:
-            medians_k = compute_medians(df.iloc[tr], feats)
-            Xtr = apply_impute(df.iloc[tr], feats, medians_k)
-            Xva = apply_impute(df.iloc[va], feats, medians_k)
+    def get_cv_splitter(self, df: pd.DataFrame, y: np.ndarray, has_time: bool):
+        """Get appropriate cross-validation splitter."""
+        if (self.config.time_series == '1') or (self.config.time_series == 'auto' and has_time):
+            splitter = TimeSeriesSplit(n_splits=self.config.oof_folds)
+            return splitter, splitter.split(df), "TimeSeriesSplit"
         else:
-            Xtr = df.iloc[tr][feats].apply(pd.to_numeric, errors="coerce")
-            Xva = df.iloc[va][feats].apply(pd.to_numeric, errors="coerce")
-            Xtr, ytr, wgtr = drop_na_rows(Xtr, pd.Series(y[tr]), None if wgt is None else pd.Series(wgt[tr]))
-            # re-slice va to numeric
-            mask_va = ~Xva.isna().any(axis=1)
-            Xva = Xva[mask_va]; yva = y[va][mask_va.values]
-            # adjust indices
-            va = df.index[va][mask_va.values].to_numpy()
-        ytr = y[tr] if IMPUTE_MISSING else ytr.values
-        wgtr = None if wgt is None else (wgt[tr] if IMPUTE_MISSING else wgtr.values)
+            splitter = StratifiedKFold(n_splits=self.config.oof_folds, shuffle=True, random_state=self.config.random_state)
+            return splitter, splitter.split(df, y), "StratifiedKFold"
 
-        clf = make_model(RANDOM_STATE + k, model_type=MODEL_TYPE)
-        #clf.fit(Xtr, ytr, sample_weight=wgtr)
-        use_es = MODEL_TYPE in {"lgbm","catboost"} and VALID_FRACTION > 0 and len(Xva) > 0
+    def fit_fold_model(self, clf, Xtr, ytr, wgtr, Xva, yva, fold_k):
+        """Fit model for a single fold with optional early stopping."""
+        use_es = (self.config.model_type in {"lgbm", "catboost"} and
+                  self.config.valid_fraction > 0 and len(Xva) > 0)
+
         if use_es:
-            # carve a small tail from Xtr for eval to avoid peeking into Va
-            cut = int(len(Xtr) * (1.0 - VALID_FRACTION))
+            cut = int(len(Xtr) * (1.0 - self.config.valid_fraction))
             Xtr_fit, ytr_fit = Xtr.iloc[:cut], ytr[:cut]
-            Xeval,   yeval   = Xtr.iloc[cut:], ytr[cut:]
-        
-            if MODEL_TYPE == "catboost":
-                # CatBoost needs Pool for weights
-                #from catboost import Pool
-                #train_pool = Pool(Xtr_fit, ytr_fit, weight=None if wgtr is None else wgtr[:cut])
-                #eval_pool  = Pool(Xeval, yeval)
+            Xeval, yeval = Xtr.iloc[cut:], ytr[cut:]
+
+            if self.config.model_type == "catboost":
                 clf.fit(
                     Xtr_fit, ytr_fit,
                     sample_weight=(wgtr[:cut] if wgtr is not None else None),
                     eval_set=(Xeval, yeval),
                     use_best_model=True,
-                    early_stopping_rounds=EARLY_STOPPING_ROUNDS,
+                    early_stopping_rounds=self.config.early_stopping_rounds,
                     verbose=False
                 )
-            else:
+            else:  # lgbm
                 clf.fit(
                     Xtr_fit, ytr_fit,
                     sample_weight=wgtr[:cut] if wgtr is not None else None,
                     eval_set=[(Xeval, yeval)],
-                    eval_metric=("aucpr" if MODEL_TYPE=="lgbm" else "PRAUC"),
-                    callbacks=None if MODEL_TYPE=="catboost" else [__import__("lightgbm").early_stopping(EARLY_STOPPING_ROUNDS, verbose=False)]
+                    eval_metric="aucpr",
+                    callbacks=[__import__("lightgbm").early_stopping(self.config.early_stopping_rounds, verbose=False)]
                 )
         else:
             clf.fit(Xtr, ytr, sample_weight=wgtr)
 
-        pva = clf.predict_proba(Xva)[:, 1]
-        proba_oof[va] = pva
-        fold_idx[va] = k
+        return clf
 
-    # Any remaining NaNs -> fill with median prob
-    nan_mask = np.isnan(proba_oof)
-    if nan_mask.any():
-        fill_val = np.nanmedian(proba_oof)
-        proba_oof[nan_mask] = fill_val
+    def run_oof_cv(self, df: pd.DataFrame, y: np.ndarray, features: List[str],
+                   weights: np.ndarray, has_time: bool):
+        """Run out-of-fold cross-validation."""
+        splitter, split_iter, split_kind = self.get_cv_splitter(df, y, has_time)
 
-    # OOF metrics
+        proba_oof = np.full(len(df), np.nan, dtype=float)
+        fold_idx = np.full(len(df), -1, dtype=int)
+
+        for k, (tr, va) in enumerate(split_iter):
+            # Prepare fold data
+            if self.config.impute_missing:
+                medians_k = self.preprocessor.compute_medians(df.iloc[tr], features)
+                Xtr = self.preprocessor.apply_impute(df.iloc[tr], features, medians_k)
+                Xva = self.preprocessor.apply_impute(df.iloc[va], features, medians_k)
+            else:
+                Xtr = df.iloc[tr][features].apply(pd.to_numeric, errors="coerce")
+                Xva = df.iloc[va][features].apply(pd.to_numeric, errors="coerce")
+                Xtr, ytr, wgtr = self.preprocessor.drop_na_rows(
+                    Xtr, pd.Series(y[tr]),
+                    None if weights is None else pd.Series(weights[tr])
+                )
+                mask_va = ~Xva.isna().any(axis=1)
+                Xva = Xva[mask_va]
+                va = df.index[va][mask_va.values].to_numpy()
+
+            ytr = y[tr] if self.config.impute_missing else ytr.values
+            wgtr = None if weights is None else (weights[tr] if self.config.impute_missing else wgtr.values)
+
+            # Train model
+            clf = ModelFactory.create_model(self.config, k)
+            clf = self.fit_fold_model(clf, Xtr, ytr, wgtr, Xva, y[va], k)
+
+            # Predict
+            pva = clf.predict_proba(Xva)[:, 1]
+            proba_oof[va] = pva
+            fold_idx[va] = k
+
+        # Fill any remaining NaNs
+        nan_mask = np.isnan(proba_oof)
+        if nan_mask.any():
+            fill_val = np.nanmedian(proba_oof)
+            proba_oof[nan_mask] = fill_val
+
+        return proba_oof, fold_idx, split_kind
+
+
+# ---------- Main Function ----------
+
+def main():
+    """Main training function with refactored structure."""
+    # Initialize components
+    config = WinnerClassifierConfig()
+    ensure_dir(config.output_dir)
+
+    preprocessor = DataPreprocessor(config)
+    cv_handler = CrossValidator(config, preprocessor)
+
+    # Load and prepare data
+    df = pd.read_csv(config.input_csv)
+
+    df, y, features, weights, has_time = preprocessor.prepare_data(df)
+
+    if config.train_target not in df.columns:
+        raise ValueError(f"Training target '{config.train_target}' not found in DataFrame")
+
+    # Timing
+    start_time = pd.Timestamp.now()
+
+    # Run OOF Cross-validation
+    proba_oof, fold_idx, split_kind = cv_handler.run_oof_cv(df, y, features, weights, has_time)
+
+    # Calculate OOF metrics
     roc_auc = roc_auc_score(y, proba_oof) if len(np.unique(y)) > 1 else float("nan")
-    pr_auc  = average_precision_score(y, proba_oof)
+    pr_auc = average_precision_score(y, proba_oof)
 
-    then = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-    time_spent = pd.to_datetime(then) - pd.to_datetime(now)
-    print(f"Completed OOF scoring ({len(df)} rows, {OOF_FOLDS} folds, {split_kind}) in {time_spent}")
+    cv_time = pd.Timestamp.now() - start_time
+    print(f"Completed OOF scoring ({len(df)} rows, {config.oof_folds} folds, {split_kind}) in {cv_time}")
     print(f"OOF AUC-ROC={roc_auc:.4f}; AUC-PR={pr_auc:.4f}")
 
-    # PR vs coverage on OOF
+    # Generate evaluation outputs
+    _save_evaluation_results(config, df, y, proba_oof, fold_idx, split_kind)
+
+    # Train final model on all data
+    final_model, final_train_time = _train_final_model(config, preprocessor, df, y, features)
+
+    # Save final results
+    _save_final_results(config, final_model, features, df, proba_oof, y, roc_auc, pr_auc, split_kind)
+
+    print(f"✅ Winner classifier trained with OOF. ROC AUC(O): {roc_auc:.4f}, PR AUC(O): {pr_auc:.4f}")
+    print(f"CV: {split_kind}, folds={config.oof_folds}")
+    print(f"Outputs saved in: {config.output_dir}")
+
+
+def _save_evaluation_results(config: WinnerClassifierConfig, df: pd.DataFrame, y: np.ndarray,
+                           proba_oof: np.ndarray, fold_idx: np.ndarray, split_kind: str):
+    """Save precision-recall curves, threshold tables, and OOF predictions."""
     precision, recall, thresholds = precision_recall_curve(y, proba_oof)
-    coverage = [ (proba_oof >= t).mean() for t in thresholds ]
+    coverage = [(proba_oof >= t).mean() for t in thresholds]
+
+    # Save PR curve data
     pr_df = pd.DataFrame({
         "threshold": thresholds,
         "precision": precision[:-1],
         "recall": recall[:-1],
         "coverage": coverage
     })
-    pr_csv_path = os.path.join(OUTDIR, "precision_recall_coverage.csv")
+    pr_csv_path = os.path.join(config.output_dir, "precision_recall_coverage.csv")
     pr_df.to_csv(pr_csv_path, index=False)
 
-    # Threshold table at requested targets (on OOF)
-    thr_table = pick_threshold_by_target(y, proba_oof, TARGETS_RECALL, TARGETS_PRECISION)
-    thr_csv_path = os.path.join(OUTDIR, "threshold_table.csv")
+    # Threshold table at requested targets
+    thr_table = pick_threshold_by_target(y, proba_oof, config.targets_recall, config.targets_precision)
+    thr_csv_path = os.path.join(config.output_dir, "threshold_table.csv")
     thr_table.to_csv(thr_csv_path, index=False)
 
-    # Save per-row OOF probabilities
+    # Save OOF predictions
     oof_out = pd.DataFrame({
         "row_idx": np.arange(len(df)),
         "proba_oof": proba_oof,
         "label": y,
         "fold": fold_idx
     })
-    if ID_COLS:
-        for c in ID_COLS:
+    if config.id_cols:
+        for c in config.id_cols:
             if c in df.columns:
                 oof_out[c] = df[c].values
-    oof_out.to_csv(os.path.join(OUTDIR, "winner_scores_oof.csv"), index=False)
+    oof_out.to_csv(os.path.join(config.output_dir, "winner_scores_oof.csv"), index=False)
 
     # Plot PR/coverage
-    plt.figure(figsize=(8,6))
+    plt.figure(figsize=(8, 6))
     plt.plot(pr_df["coverage"], pr_df["precision"], label="Precision vs Coverage (OOF)")
     plt.plot(pr_df["coverage"], pr_df["recall"], label="Recall vs Coverage (OOF)")
     plt.xlabel("Coverage (fraction predicted winners)")
     plt.ylabel("Score")
-    plt.title(f"Precision & Recall vs Coverage — Winner Classifier OOF ({split_kind}, folds={OOF_FOLDS})")
+    plt.title(f"Precision & Recall vs Coverage — Winner Classifier OOF ({split_kind}, folds={config.oof_folds})")
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(OUTDIR, "precision_recall_coverage.png"), dpi=150)
+    plt.savefig(os.path.join(config.output_dir, "precision_recall_coverage.png"), dpi=150)
     plt.close()
 
-    now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-    # Train FINAL model on ALL data for export
-    if IMPUTE_MISSING:
-        X_all = apply_impute(df, feats, medians_global if medians_global is not None else compute_medians(df, feats))
-    else:
-        X_all = df[feats].apply(pd.to_numeric, errors="coerce")
-        X_all, y_all, _ = drop_na_rows(X_all, pd.Series(y), None)
-        y = y_all.values  # replace with filtered y if needed
 
-    clf_final = make_model(RANDOM_STATE, model_type=MODEL_TYPE)
+def _train_final_model(config: WinnerClassifierConfig, preprocessor: DataPreprocessor,
+                      df: pd.DataFrame, y: np.ndarray, features: List[str]):
+    """Train final model on all available data."""
+    start_time = pd.Timestamp.now()
+
+    if config.impute_missing:
+        medians = preprocessor.medians_global or preprocessor.compute_medians(df, features)
+        X_all = preprocessor.apply_impute(df, features, medians)
+    else:
+        X_all = df[features].apply(pd.to_numeric, errors="coerce")
+        X_all, y_filtered, _ = preprocessor.drop_na_rows(X_all, pd.Series(y), None)
+        y = y_filtered.values
+
+    clf_final = ModelFactory.create_model(config)
     clf_final.fit(X_all, y)
 
-    then = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-    time_spent = pd.to_datetime(then) - pd.to_datetime(now)
-    print(f"Trained final model on ALL data ({len(df)} rows) in {time_spent}")
+    train_time = pd.Timestamp.now() - start_time
+    print(f"Trained final model on ALL data ({len(df)} rows) in {train_time}")
 
-    # Save feature importances (using final model & X_all)
+    # Save feature importances
     try:
-        _ = save_feature_importances(clf_final, X_all, y, feats, OUTDIR)
+        save_feature_importances(clf_final, X_all, y, features, config.output_dir)
     except Exception as e:
         print(f"[WARN] feature importance failed: {e}")
 
-    # Best-F1 threshold (OOF)
+    return clf_final, train_time
+
+
+def _save_final_results(config: WinnerClassifierConfig, final_model, features: List[str],
+                       df: pd.DataFrame, proba_oof: np.ndarray, y: np.ndarray,
+                       roc_auc: float, pr_auc: float, split_kind: str):
+    """Save final model pack and metrics."""
+    # Find best F1 threshold
+    precision, recall, thresholds = precision_recall_curve(y, proba_oof)
     best_f1, best_thr = -1.0, 0.5
     for thr in thresholds:
         yhat = (proba_oof >= thr).astype(int)
         f1 = f1_score(y, yhat, zero_division=0)
         if f1 > best_f1:
             best_f1, best_thr = f1, float(thr)
+
     cm = confusion_matrix(y, (proba_oof >= best_thr).astype(int))
     tn, fp, fn, tp = cm.ravel()
 
+    # Compile metrics
     metrics = {
         "roc_auc_oof": float(roc_auc),
         "pr_auc_oof": float(pr_auc),
@@ -566,38 +674,31 @@ def main():
         "best_f1_oof": float(best_f1),
         "coverage_at_best_f1_oof": float((proba_oof >= best_thr).mean()),
         "confusion_at_best_f1_oof": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
-        "features": feats,
-        "impute_missing": bool(IMPUTE_MISSING),
-        "use_weights": bool(USE_WEIGHTS),
-        "cv": {"kind": split_kind, "folds": int(OOF_FOLDS)}
+        "features": features,
+        "impute_missing": config.impute_missing,
+        "use_weights": config.use_weights,
+        "cv": {"kind": split_kind, "folds": config.oof_folds}
     }
 
-    with open(os.path.join(OUTDIR, "winner_classifier_metrics.json"), "w") as f:
+    # Save metrics
+    with open(os.path.join(config.output_dir, "winner_classifier_metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 
     # Save model pack
     pack = {
-        "model": clf_final,
-        "model_type": os.getenv("WINNER_MODEL_TYPE","rf"),
-        "features": feats,
-        "medians": (compute_medians(df, feats) if IMPUTE_MISSING else None),
-        "impute_missing": bool(IMPUTE_MISSING),
-        "targets_table_path": thr_csv_path,
+        "model": final_model,
+        "model_type": config.model_type,
+        "features": features,
+        "medians": (DataPreprocessor(config).compute_medians(df, features) if config.impute_missing else None),
+        "impute_missing": config.impute_missing,
+        "targets_table_path": os.path.join(config.output_dir, "threshold_table.csv"),
         "metrics": metrics,
-        "label": f"{TRAIN_TARGET} > 0",
-        "oof_scores_path": os.path.join(OUTDIR, "winner_scores_oof.csv"),
+        "label": f"{config.train_target} > 0",
+        "oof_scores_path": os.path.join(config.output_dir, "winner_scores_oof.csv"),
     }
-    MODEL_NAME = f"{MODEL_NAME}_{MODEL_TYPE}.pkl"
-    joblib.dump(pack, os.path.join(OUTDIR, MODEL_NAME))
 
-    print(f"✅ Winner classifier trained with OOF. ROC AUC(O): {roc_auc:.4f}, PR AUC(O): {pr_auc:.4f}")
-    print(f"CV: {split_kind}, folds={OOF_FOLDS}")
-    print(f"Outputs saved in: {OUTDIR}")
-    print(f"- winner_scores_oof.csv  (per-row OOF proba + fold)")
-    print(f"- precision_recall_coverage.csv / .png  (OOF)")
-    print(f"- threshold_table.csv    (OOF targets)")
-    print(f"- winner_classifier_metrics.json  (OOF metrics)")
-    print(f"- {MODEL_NAME} (final model pack)")
+    model_filename = f"{config.model_name}_{config.model_type}.pkl"
+    joblib.dump(pack, os.path.join(config.output_dir, model_filename))
 
 if __name__ == "__main__":
     main()
