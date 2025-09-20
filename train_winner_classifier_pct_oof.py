@@ -657,7 +657,9 @@ def _save_final_results(config: WinnerClassifierConfig, final_model, features: L
     # Find best F1 threshold
     precision, recall, thresholds = precision_recall_curve(y, proba_oof)
     best_f1, best_thr = -1.0, 0.5
-    for thr in thresholds:
+    for idx, thr in enumerate(thresholds):
+        if idx % 10 != 0 and idx != len(thresholds) - 1:
+            continue
         yhat = (proba_oof >= thr).astype(int)
         f1 = f1_score(y, yhat, zero_division=0)
         if f1 > best_f1:
