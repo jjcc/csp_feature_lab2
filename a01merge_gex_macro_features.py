@@ -54,6 +54,11 @@ def main():
 
     # Use shared macro features function
     d = add_macro_features(gex_merged, VIX_CSV, PX_BASE_DIR)
+    # filter rows with missing GEX if specified. Default: keep all rows
+    if os.getenv("FILTER_GEX", "0").strip() in {"1","true","yes","y","on"}:
+        d = d[d["gex_missing"] == 0].copy()
+        out_csv = out_csv.replace(".csv", "_gexonly.csv")
+        print(f"Filtered rows with missing GEX, remaining {len(d)} rows.")
 
     # Save
     d.to_csv(out_csv, index=False)

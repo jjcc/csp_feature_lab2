@@ -103,7 +103,8 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     return df
 
 def label_csv_file( raw):
-    cut_off_date = "2025-09-06"
+    #cut_off_date = "2025-09-06"
+    cut_off_date = "2025-08-08"
     cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else None
     batch_size = int(getenv("BATCH_SIZE", "30"))
     #processed_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
@@ -122,6 +123,9 @@ def main():
     out_dir = getenv("OUT_DIR", "output")
     input_csv = getenv("MACRO_FEATURE_CSV", "trades_with_gex_macro.csv")
     input_csv = f"{out_dir}/{input_csv}"
+    # filter rows with missing GEX if specified. Default: keep all rows
+    if getenv("FILTER_GEX", "0").strip() in {"1","true","yes","y","on"}:
+        input_csv = input_csv.replace(".csv", "_gexonly.csv")
     df = pd.read_csv(input_csv, index_col="row_id")
 
     label_csv_file(df)
