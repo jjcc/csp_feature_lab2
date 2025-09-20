@@ -13,7 +13,7 @@ from datetime import datetime, time
 
 from dotenv import load_dotenv
 
-from a02merge_macro_features import _load_vix, per_symbol_price_feat, add_macro_features
+from service.data_prepare import _load_vix, add_macro_features
 from service.get_vix import get_current_vix, init_driver, url_vix
 from service.preprocess import merge_gex
 from service.utils import fill_features_with_training_medians, prep_tail_training_df, prep_winner_like_training
@@ -23,9 +23,9 @@ load_dotenv()
 #TAIL_MODEL_IN = "models/tail_model_gex_v2_cut05.pkl"
 TAIL_MODEL_IN = "output/tails_train/v6b_ne/tail_model_gex_v6b_ne_cut05.pkl"
 TAIL_KEEP_PROBA_COL = "tail_proba"
-#WINNER_MODEL_IN = "output/winner/model_pack.pkl"
-#WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited/winner_classifier_model_v6_oof_ne.pkl"
-WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited_w_lgbm/winner_classifier_v6_oof_ne_w_lgbm.pkl"
+#WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited_w_lgbm/winner_classifier_v6_oof_ne_w_lgbm.pkl"
+#WINNER_MODEL_IN = "output/winner_train/external/winner_classifier_v6_oof_ne_w_lgbm.pkl"
+WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_ts_w_lgbm_rfctr/winner_classifier_v6_oof_ne_w_lgbm.pkl"
 WINNER_PROBA_COL = "winner_proba"
 
 PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()  
@@ -70,7 +70,8 @@ def main(Test=False):
 
     option_file = latest_file_with_path
     if Test:
-        option_file = "option/put/unprocessed/coveredPut_2025-08-08_11_00.csv"
+        #option_file = "option/put/unprocessed/coveredPut_2025-08-08_11_00.csv"
+        option_file = "option/put/coveredPut_2025-09-18_11_00.csv"
         latest_file_time = option_file.split("_")[-2:]
         latest_file_time = ":".join(latest_file_time).replace(".csv", "")
         target_t = parse_target_time(latest_file_time)
@@ -83,21 +84,11 @@ def main(Test=False):
     time_str = f"{hour}_{minute}"
     out_dir = "prod/output"
     os.makedirs(out_dir, exist_ok=True)
-    out_path = f"{out_dir}/scored_tail_winner_test_{target_date}_{time_str}.csv"
+    out_path = f"{out_dir}/scored_tail_winner_lgbm_{target_date}_{time_str}.csv"
     if Test:
-        out_path = f"{out_dir}/scored_tail_winner_test_{target_date}_{time_str}_test2.csv"
+        out_path = f"{out_dir}/scored_tail_winner_lgbm_{target_date}_{time_str}_test2.csv"
 
-    gex_base_dir = os.getenv("GEX_BASE_DIR")
-    trades = pd.read_csv(option_file)
-    df_o = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
-
-    # add macro features using shared function
-    today = datetime.now()
-    # get VIX (handles both real-time and historic)
-    vix_df = get_vix(today, target_date=datetime.strptime(target_date, "%Y-%m-%d").date())
-
-    # Use shared macro features function with pre-built VIX DataFrame
-    df_o = add_macro_features(df_o, vix_df, PX_BASE_DIR)
+    df_o = add_features(target_minutes, option_file, target_date)
 
     # end of add macro features
     # get next earning and previous earning
@@ -156,6 +147,20 @@ def main(Test=False):
     with open(process_log, "a") as f:
         f.write(f"{latest_file}\n")
     print(f"Wrote scored file: {out_path}")
+
+def add_features(target_minutes, option_file, target_date):
+    gex_base_dir = os.getenv("GEX_BASE_DIR")
+    trades = pd.read_csv(option_file)
+    df_o = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
+
+    # add macro features using shared function
+    today = datetime.now()
+    # get VIX (handles both real-time and historic)
+    vix_df = get_vix(today, target_date=datetime.strptime(target_date, "%Y-%m-%d").date())
+
+    # Use shared macro features function with pre-built VIX DataFrame
+    df_o = add_macro_features(df_o, vix_df, PX_BASE_DIR)
+    return df_o
 
 def get_vix(today, target_date=None):
     if target_date is not None:
