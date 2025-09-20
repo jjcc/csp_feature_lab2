@@ -35,7 +35,7 @@ def main():
 
     #CSV_IN  = os.getenv("OUTPUT_CSV", "./candidates.csv")
 
-    USE_OTHER = True
+    USE_OTHER = False
 
     if USE_OTHER:
         #Other model want to score
@@ -46,7 +46,10 @@ def main():
         MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
         MODEL_IN = f"{MODEL_IN}_{MODEL_TYPE}.pkl"
 
-    CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
+    CSV_OUT_DIR = os.getenv("WINNER_SCORE_OUT_FOLDER", "output/winner_score/folder1")
+    os.makedirs(CSV_OUT_DIR, exist_ok=True)
+    CSV_OUT =   os.getenv("WINNER_SCORE_OUT", "scores_winner.csv")
+    CSV_OUT = os.path.join(CSV_OUT_DIR, CSV_OUT)
     PROBA_COL = os.getenv("WINNER_PROBA_COL", "prob_winner")
     PRED_COL  = os.getenv("WINNER_PRED_COL", "pred_winner")
     TRAIN_TARGET = os.getenv("WINNER_TRAIN_TARGET", "return_mon").strip()
