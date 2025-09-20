@@ -30,16 +30,22 @@ def main():
     load_env_default()
 
     CSV_IN  = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
+    GEX_FILTER = str(os.getenv("FILTER_GEX", "0")).lower() in {"1","true","yes","y","on"}
     #CSV_IN  = os.path.join(os.getenv("OUTPUT_DIR", "output"), os.getenv("MACRO_FEATURE_CSV", "./candidates.csv"))
 
     #CSV_IN  = os.getenv("OUTPUT_CSV", "./candidates.csv")
 
-    #Other model want to score
-    #MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
-    #current training model
-    MODEL_TYPE = os.getenv("WINNER_MODEL_TYPE","lgbm").strip().lower()  # options: lgbm, rf, catboost
-    MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
-    MODEL_IN = f"{MODEL_IN}_{MODEL_TYPE}.pkl"
+    USE_OTHER = True
+
+    if USE_OTHER:
+        #Other model want to score
+        MODEL_IN= os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
+    else:
+        #current training model
+        MODEL_TYPE = os.getenv("WINNER_MODEL_TYPE","lgbm").strip().lower()  # options: lgbm, rf, catboost
+        MODEL_IN = os.getenv("WINNER_OUTPUT_DIR") + "/" + os.getenv("WINNER_MODEL_NAME")
+        MODEL_IN = f"{MODEL_IN}_{MODEL_TYPE}.pkl"
+
     CSV_OUT = os.getenv("WINNER_SCORE_OUT", "./scores_winner.csv")
     PROBA_COL = os.getenv("WINNER_PROBA_COL", "prob_winner")
     PRED_COL  = os.getenv("WINNER_PRED_COL", "pred_winner")
@@ -64,6 +70,9 @@ def main():
     best_f1_thr = float(pack.get("metrics", {}).get("best_f1_threshold", 0.5))
 
     df = pd.read_csv(CSV_IN)
+    if GEX_FILTER and "gex_missing" in df.columns:
+        df = df[df["gex_missing"] == 0].copy()
+        print(f"Filtered rows with missing GEX, remaining {len(df)} rows.")
     df = add_dte_and_normalized_returns(df)
     if "tradeTime" in df.columns:
         df["tradeTime"] = pd.to_datetime(df["tradeTime"], errors="coerce")
