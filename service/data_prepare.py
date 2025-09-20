@@ -123,7 +123,7 @@ def derive_capital(df, policy="strike100", constant_capital=10_000.0):
 def _coerce_dt(s):
     return pd.to_datetime(s, errors="coerce")
 
-def _load_vix(vix_csv, start_date, end_date):
+def _load_vix(vix_csv, start_date, end_date,force_download=False):
     # Return a Series indexed by date (daily), name="VIX"
     if vix_csv and Path(vix_csv).exists():
         vdf = pd.read_csv(vix_csv)
@@ -131,11 +131,13 @@ def _load_vix(vix_csv, start_date, end_date):
         close_col = "VIX" if "VIX" in vdf.columns else "Close"
         vdf[date_col] = pd.to_datetime(vdf[date_col], errors="coerce")
         max_date = vdf[date_col].max()
-        if pd.isna(max_date) or max_date > pd.to_datetime(end_date):
+        if pd.isna(max_date) or max_date >= pd.to_datetime(end_date) and not force_download:
             vdf = vdf.dropna(subset=[date_col]).set_index(date_col).sort_index()
             return vdf.loc[start_date:end_date, close_col].rename("VIX").astype(float)
     #if use_yf:
     try:
+        if force_download:
+            end_date = pd.Timestamp.now().date()
         df = yf.download("^VIX", start=start_date, end=end_date)
         # Handle MultiIndex columns from yfinance
         if isinstance(df.columns, pd.MultiIndex):

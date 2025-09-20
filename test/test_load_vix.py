@@ -11,9 +11,9 @@ from unittest.mock import patch
 
 # Import the function to test
 import sys
+from service.data_prepare import _load_vix
 from service.get_vix import init_driver, url_vix
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from a02merge_macro_features import _load_vix
 
 
 class TestLoadVix(unittest.TestCase):
@@ -48,15 +48,12 @@ class TestLoadVix(unittest.TestCase):
     def test_load_from_csv_file_with_Date_Close_columns(self):
         """Test loading VIX from CSV file with Date/Close columns"""
         # Create test CSV file
-        test_data = pd.DataFrame({
-            'Date': ['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04', '2023-01-05'],
-            'Close': [20.5, 21.0, 19.8, 22.1, 23.5]
-        })
-        csv_path = Path(self.temp_dir) / "vix.csv"
-        test_data.to_csv(csv_path, index=False)
+        VIX_CSV     = os.getenv("VIX_CSV", "").strip() or None
+        csv_path = VIX_CSV
         
-        result = _load_vix(str(csv_path), self.start_date, self.end_date, use_yf=False)
-        
+        end_date = pd.to_datetime(self.end_date) - pd.Timedelta(days=1)
+        result = _load_vix(str(csv_path), self.start_date, end_date, force_download=True)
+
         self.assertEqual(result.name, "VIX")
         self.assertEqual(len(result), 5)
         self.assertTrue(pd.api.types.is_datetime64_any_dtype(result.index))
