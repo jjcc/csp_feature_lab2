@@ -1,3 +1,4 @@
+import os
 import unittest
 import joblib
 import pandas as pd
@@ -236,6 +237,43 @@ class TestDataAna(unittest.TestCase):
         print(f"Overall win rate: {df_data['labelled_winner'].mean()* 100:.2f}%")
         print(f"Model prediction range: [{df_data['win_proba'].min():.3f}, {df_data['win_proba'].max():.3f}]")
         return results_df
+
+    def test_unique_symbols(self):
+        """
+        Test for unique symbols in one day's data.
+        """
+        folder = "prod/output"
+        date = "2025-09-18"
+        #files = [f for f in os.listdir(folder) if f.startswith(f"scored_tail_winner_lgbm_{date}_") and f.endswith(".csv")]
+        files = [f for f in os.listdir(folder) if f.startswith(f"scored_tail_winner_test_{date}_") and f.endswith(".csv")]
+        files.sort()
+        unique_basesymbols = []
+        unique_symbols=set()
+        common_symbols = set()
+        prev_symbols = set()
+        print("###################################")
+        for file in files:
+            if '_00.' in file:
+                continue
+            path = os.path.join(folder, file)
+            df = pd.read_csv(path)
+            unique_basesymbols.extend(df['baseSymbol'].unique())
+            unique_symbols.update(df['symbol'].unique())
+            if len(prev_symbols) == 0:
+                prev_symbols = df['symbol'].unique()
+                continue
+            common_symbols = set(prev_symbols).intersection(set(df['symbol'].unique()))
+            prev_symbols = df['symbol'].unique()
+            # overlap with previous file
+            print(f"File: {file}, unique symbols: {len(df['symbol'].unique())}, common with previous: {len(common_symbols)}")
+
+        # unique base symbols, i.e. underlying stocks
+        unique_basesymbols = set(unique_basesymbols)
+        # unique symbols,i.e. option contracts
+        unique_symbols = set(unique_symbols)
+        print(f"unique symbols in raw data files: {len(unique_symbols)}")
+        print(f"Unique base symbols in data files: {len(unique_basesymbols)}")
+        self.assertTrue(len(unique_basesymbols) > 0, "There should be at least one unique symbol.")
 
 if __name__ == '__main__':
     unittest.main()
