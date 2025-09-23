@@ -5,17 +5,13 @@ This is a converted version of the test `test_score_tail_winner_classifier` from
 `test/test_prod.py` made into a runnable script placed at the repository root.
 """
 from glob import glob
-import pandas as pd
 import os
-from datetime import datetime, time
 
 from dotenv import load_dotenv
 
-from service.data_prepare import _load_vix, add_macro_features
-from service.get_vix import get_current_vix, init_driver, url_vix
-from service.preprocess import merge_gex
 from service.utils import prep_tail_training_df
 from service.winner_scoring import load_winner_model, score_winner_data, apply_winner_threshold, cleanup_columns_for_production
+from service.production_data import add_features, parse_target_time
 
 load_dotenv()
 
@@ -29,12 +25,6 @@ WINNER_PROBA_COL = "winner_proba"
 
 PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()  
 
-def parse_target_time(s: str) -> time:
-    try:
-        hh, mm = s.split(":")
-        return time(int(hh), int(mm))
-    except Exception:
-        return time(11, 0)
 
 
 def get_merge_params(ignore_log=False):
@@ -89,12 +79,6 @@ def main(Test=False):
 
     df_o = add_features(target_minutes, option_file, target_date)
 
-    # end of add macro features
-    # get next earning and previous earning
-
-
-
-
     # tail scoring
     #pack_tl = joblib.load(TAIL_MODEL_IN)
     #clf_tl = pack_tl["model"]
@@ -130,41 +114,6 @@ def main(Test=False):
         f.write(f"{latest_file}\n")
     print(f"Wrote scored file: {out_path}")
 
-def add_features(target_minutes, option_file, target_date):
-    gex_base_dir = os.getenv("GEX_BASE_DIR")
-    trades = pd.read_csv(option_file)
-    df_o = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
-
-    # add macro features using shared function
-    today = datetime.now()
-    # get VIX (handles both real-time and historic)
-    vix_df = get_vix(today, target_date=datetime.strptime(target_date, "%Y-%m-%d").date())
-
-    # Use shared macro features function with pre-built VIX DataFrame
-    df_o = add_macro_features(df_o, vix_df, PX_BASE_DIR)
-    return df_o
-
-def get_vix(today, target_date=None):
-    if target_date is not None:
-        if target_date != today.date():
-            VIX_CSV = os.getenv("VIX_CSV", "").strip() or None
-            start_date = target_date - pd.Timedelta(days=1)
-            end_date   = target_date + pd.Timedelta(days=1)
-            vix = _load_vix(VIX_CSV,start_date, end_date)
-            vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
-            print(f"Target date {target_date} is not today {today.date()}, skip VIX fetch.")
-            return vix_df
-
-    driver = init_driver(headless=True)
-    vix_value = get_current_vix(url_vix, driver)
-    try:
-        vix_value = float(vix_value)
-        today_date = today.date()
-        today_date = pd.to_datetime(today_date)
-    except ValueError:
-        vix_value = 16.35
-    vix_df = pd.DataFrame({"trade_date": [today_date], "VIX": [vix_value]})
-    return vix_df
 
 
 if __name__ == '__main__':

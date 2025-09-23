@@ -24,6 +24,7 @@ from service.winner_scoring import (
     select_winner_threshold, calculate_winner_metrics, extract_labels,
     write_winner_summary, write_winner_metrics
 )
+from service.production_data import add_features, parse_target_time
 
 
 @dataclass
@@ -48,6 +49,7 @@ class ScoringConfig:
     use_oof: bool
     train_epsilon: float
     write_sweep: bool
+    process_on_fly: bool
 
 
 def load_scoring_config() -> ScoringConfig:
@@ -104,7 +106,8 @@ def load_scoring_config() -> ScoringConfig:
         split_file=split_file,
         use_oof=True,  # TODO: Make this configurable
         train_epsilon=float(os.getenv("WINNER_TRAIN_EPSILON", "0.00")),
-        write_sweep=str(os.getenv("WRITE_SWEEP", "1")).lower() in {"1", "true", "yes", "y", "on"}
+        write_sweep=str(os.getenv("WRITE_SWEEP", "1")).lower() in {"1", "true", "yes", "y", "on"},
+        process_on_fly=str(os.getenv("PROCESS_ON_FLY", "0")).lower() in {"1", "true", "yes", "y", "on"}
     )
 
 
@@ -209,6 +212,47 @@ def write_outputs(config: ScoringConfig, out: pd.DataFrame, chosen_thr: float, y
         write_threshold_sweep(proba, y, out_scored)
 
 
+def load_data_on_fly(config: ScoringConfig) -> pd.DataFrame:
+    """Load and process data on-the-fly (production style)."""
+    option_file = config.csv_in
+
+    # Extract date and time from filename (assuming format like task_score_tail_winner.py)
+    # This is a simplified extraction - adjust based on your filename patterns
+    filename = os.path.basename(option_file)
+    if "_" in filename:
+        parts = filename.replace(".csv", "").split("_")
+        if len(parts) >= 3:
+            target_date = parts[-3] if parts[-3].count("-") == 2 else "2025-01-01"  # fallback
+            time_part = f"{parts[-2]}:{parts[-1]}" if len(parts) >= 4 else "11:00"
+        else:
+            target_date = "2025-01-01"  # fallback
+            time_part = "11:00"
+    else:
+        target_date = "2025-01-01"  # fallback
+        time_part = "11:00"
+
+    target_t = parse_target_time(time_part)
+    target_minutes = target_t.hour * 60 + target_t.minute
+
+    # Use shared function from production_data.py
+    df = add_features(target_minutes, option_file, target_date)
+
+    # Apply same preprocessing as load_and_preprocess_data
+    if config.gex_filter and "gex_missing" in df.columns:
+        df = df[df["gex_missing"] == 0].copy()
+        print(f"Filtered rows with missing GEX, remaining {len(df)} rows.")
+
+    df = add_dte_and_normalized_returns(df)
+
+    if "tradeTime" in df.columns:
+        df["tradeTime"] = pd.to_datetime(df["tradeTime"], errors="coerce")
+
+    # Note: On-fly processing doesn't use split files or train/test filtering
+    # as it's meant for production data
+
+    return df
+
+
 def main():
     """Main function to score winner classifier."""
     config = load_scoring_config()
@@ -217,8 +261,13 @@ def main():
     model_pack = load_winner_model(config.model_in)
     print(f"Loaded model from {config.model_in}")
 
-    # Load and preprocess data
-    df = load_and_preprocess_data(config)
+    # Load and preprocess data - use on-fly processing if configured
+    if config.process_on_fly:
+        print("Using on-fly data processing (production mode)")
+        df = load_data_on_fly(config)
+    else:
+        print("Using pre-processed data (validation mode)")
+        df = load_and_preprocess_data(config)
 
     # Score using shared function
     out, proba, _ = score_winner_data(df, model_pack, config.proba_col)
