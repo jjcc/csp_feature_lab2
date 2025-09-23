@@ -11,17 +11,19 @@ behave the same way as the training so the training performance report is applic
  *(refactored to use model_utils)
 """
 import os
-import json
-import joblib
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import Optional, List
 
-from sklearn.metrics import average_precision_score, roc_auc_score
-from service.utils import load_env_default, ensure_dir, prep_winner_like_training, pick_threshold_auto
+from service.utils import load_env_default, ensure_dir
 from service.preprocess import add_dte_and_normalized_returns
+from service.winner_scoring import (
+    load_winner_model, score_winner_data, apply_winner_threshold,
+    select_winner_threshold, calculate_winner_metrics, extract_labels,
+    write_winner_summary, write_winner_metrics
+)
 
 
 @dataclass
@@ -156,25 +158,8 @@ def load_and_preprocess_data(config: ScoringConfig) -> pd.DataFrame:
     return df
 
 
-def select_threshold(config: ScoringConfig, proba: np.ndarray, y: Optional[np.ndarray], best_f1_thr: float) -> Tuple[float, Optional[pd.DataFrame]]:
-    """Select threshold based on configuration."""
-    if config.fixed_threshold is not None:
-        return config.fixed_threshold, None
-
-    if config.auto_calibrate and y is not None and (config.target_precisions or config.target_recalls):
-        return pick_threshold_auto(y, proba, config.target_precisions, config.target_recalls)
-
-    if config.use_pack_f1:
-        return best_f1_thr, None
-
-    return 0.5, None
 
 
-def calculate_metrics(y_true: np.ndarray, proba: np.ndarray) -> Tuple[float, float]:
-    """Calculate AUC-ROC and AUC-PRC metrics."""
-    auc_roc = roc_auc_score(y_true, proba) if len(np.unique(y_true)) > 1 else float('nan')
-    auc_prc = average_precision_score(y_true, proba)
-    return auc_roc, auc_prc
 
 
 def write_threshold_sweep(proba: np.ndarray, y: Optional[np.ndarray], output_path: str) -> None:
@@ -205,21 +190,13 @@ def write_outputs(config: ScoringConfig, out: pd.DataFrame, chosen_thr: float, y
 
     # Write metrics if we have labels
     if y is not None:
-        auc_roc, auc_prc = calculate_metrics(y, proba)
-        print(f"AUC-ROC: {auc_roc:.4f}, AUC-PRC: {auc_prc:.4f}")
+        metrics = calculate_winner_metrics(y, proba)
+        print(f"AUC-ROC: {metrics['auc_roc']:.4f}, AUC-PRC: {metrics['auc_prc']:.4f}")
+        write_winner_metrics(config.csv_out, metrics)
 
-        with open(Path(config.csv_out).with_suffix(".metrics.txt"), "w") as f:
-            f.write(f"AUC-ROC: {auc_roc:.6f}\nAUC-PRC: {auc_prc:.6f}\n")
-
-    # Write summary
-    summary = {
-        "rows_scored": int(len(out)),
-        "threshold": float(chosen_thr),
-        "predicted_winners": int(out[config.pred_col].sum()),
-        "coverage": float(out[config.pred_col].mean()),
-    }
-    with open(Path(config.csv_out).with_suffix(".json"), "w") as f:
-        json.dump(summary, f, indent=2)
+    # Write summary using shared function
+    metrics_for_summary = calculate_winner_metrics(y, proba) if y is not None else None
+    write_winner_summary(config.csv_out, out, chosen_thr, config.pred_col, metrics_for_summary)
 
     # Write threshold table if available
     if thr_table is not None:
@@ -236,38 +213,32 @@ def main():
     """Main function to score winner classifier."""
     config = load_scoring_config()
 
-    # Load model
-    pack = joblib.load(config.model_in)
+    # Load model using shared function
+    model_pack = load_winner_model(config.model_in)
     print(f"Loaded model from {config.model_in}")
-    clf = pack["model"]
-    feats = pack["features"]
-    medians = pack.get("medians", None)
-    impute_missing = bool(pack.get("impute_missing", bool(medians is not None)))
-    best_f1_thr = float(pack.get("metrics", {}).get("best_f1_threshold", 0.5))
 
     # Load and preprocess data
     df = load_and_preprocess_data(config)
 
-    # Prepare features
-    X, mask = prep_winner_like_training(df, feats, medians=medians, impute_missing=impute_missing)
-
-    # Score
-    proba = clf.predict_proba(X)[:, 1]
-    out = df.loc[mask].copy()
-    out[config.proba_col] = proba
+    # Score using shared function
+    out, proba, _ = score_winner_data(df, model_pack, config.proba_col)
 
     # Extract labels if available
-    y = None
-    if config.train_target in out.columns:
-        y = (pd.to_numeric(out[config.train_target], errors="coerce") > config.train_epsilon).astype(int).values
-    elif "win" in out.columns:
-        y = out["win"].astype(int).values
+    y = extract_labels(out, config.train_target, config.train_epsilon)
 
-    # Select threshold
-    chosen_thr, thr_table = select_threshold(config, proba, y, best_f1_thr)
+    # Select threshold using shared function
+    chosen_thr, thr_table = select_winner_threshold(
+        proba, y,
+        fixed_threshold=config.fixed_threshold,
+        use_pack_f1=config.use_pack_f1,
+        best_f1_threshold=model_pack.best_f1_threshold,
+        auto_calibrate=config.auto_calibrate,
+        target_precisions=config.target_precisions,
+        target_recalls=config.target_recalls
+    )
 
-    # Apply threshold
-    out[config.pred_col] = (out[config.proba_col] >= chosen_thr).astype(int)
+    # Apply threshold using shared function
+    out = apply_winner_threshold(out, config.proba_col, config.pred_col, chosen_thr)
     out["win_labeled"] = y if y is not None else np.nan
 
     # Write outputs
