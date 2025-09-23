@@ -52,9 +52,16 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     def expiry_close_from_cache(r):
         if preload_closes is None:
             return np.nan
+
+        # Don't label future expiration dates
+        expiry_date = pd.to_datetime(r['expirationDate'])
+        if pd.isna(expiry_date) or expiry_date > pd.Timestamp.now():
+            return np.nan
+
         sym = str(r['baseSymbol']).upper()
         price_df = preload_closes.get(sym)
-        return lookup_close_on_or_before(price_df, r['expirationDate']) if price_df is not None else np.nan
+        # Only allow prices within 3 trading days of expiration
+        return lookup_close_on_or_before(price_df, expiry_date, max_days_back=3) if price_df is not None else np.nan
     df['expiry_close'] = df.apply(expiry_close_from_cache, axis=1)
 
     # Compute labels and basic PnL (cash-settled approximation at expiry)
@@ -102,17 +109,39 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 
     return df
 
-def label_csv_file( raw):
-    #cut_off_date = "2025-09-06"
-    cut_off_date = "2025-08-08"
-    cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else None
+def label_csv_file(raw):
+    cut_off_date = "2025-09-06"
+    #cut_off_date = "2025-08-08"
+    cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else pd.Timestamp.now()
     batch_size = int(getenv("BATCH_SIZE", "30"))
     #processed_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
     labeled_csv = getenv("OUTPUT_CSV", "labeled_trades_t1.csv")
+
+    # Filter out trades with future expiration dates before labeling
+    raw_copy = raw.copy()
+    raw_copy["expirationDate"] = pd.to_datetime(raw_copy["expirationDate"], errors="coerce")
+    before_count = len(raw_copy)
+
+    # Only keep trades that have expired by the  today #cut-off date
+    #today = pd.Timestamp.now().normalize()
+    # convert today to datetime64[ns]
+    #today = today.astype("datetime64[ns]")
+    today = np.datetime64(pd.Timestamp.now().normalize())
+    raw_copy = raw_copy[
+        raw_copy["expirationDate"].notna() &
+        #(raw_copy["expirationDate"] <= cut_off_date)
+        (raw_copy["expirationDate"] <= today)
+    ].copy()
+    after_count = len(raw_copy)
+
+    if before_count != after_count:
+        print(f"Filtered out {before_count - after_count} trades with expiration dates after {cut_off_date}")
+        print(f"Remaining trades to label: {after_count}")
+
     # Preload price series with caching
     cache_dir = getenv("CACHE_DIR", "./output")
-    closes = preload_prices_with_cache(raw, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
-    labeled = build_dataset(raw, max_rows=0, preload_closes=closes)
+    closes = preload_prices_with_cache(raw_copy, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
+    labeled = build_dataset(raw_copy, max_rows=0, preload_closes=closes)
     # Keep only rows that could be labeled (win not NaN)
     labeled = labeled[~labeled["win"].isna()].copy()
     out_dir = getenv("OUTPUT_DIR", "./output")
