@@ -5,8 +5,6 @@ This is a converted version of the test `test_score_tail_winner_classifier` from
 `test/test_prod.py` made into a runnable script placed at the repository root.
 """
 from glob import glob
-import joblib
-import numpy as np
 import pandas as pd
 import os
 from datetime import datetime, time
@@ -16,7 +14,8 @@ from dotenv import load_dotenv
 from service.data_prepare import _load_vix, add_macro_features
 from service.get_vix import get_current_vix, init_driver, url_vix
 from service.preprocess import merge_gex
-from service.utils import fill_features_with_training_medians, prep_tail_training_df, prep_winner_like_training
+from service.utils import prep_tail_training_df
+from service.winner_scoring import load_winner_model, score_winner_data, apply_winner_threshold, cleanup_columns_for_production
 
 load_dotenv()
 
@@ -110,32 +109,15 @@ def main(Test=False):
     #thresh = 0.03
     #out["is_tail_pred"] = (out[TAIL_KEEP_PROBA_COL] >= thresh).astype(int)
 
-    # winner scoring
-    pack_wc = joblib.load(WINNER_MODEL_IN)
-    clf_wc = pack_wc["model"]
-    feats = pack_wc["features"]
-    medians = pack_wc.get("medians", None)
-    impute_missing = bool(pack_wc.get("impute_missing", bool(medians is not None)))
-    Xwc, mask = prep_winner_like_training(out, feats, medians=medians, impute_missing=impute_missing)
+    # winner scoring using shared functions
+    model_pack = load_winner_model(WINNER_MODEL_IN)
+    out2, _, _ = score_winner_data(out, model_pack, WINNER_PROBA_COL)
 
-    proba = clf_wc.predict_proba(Xwc)[:, 1]
-    out2 = out.loc[mask].copy()
-    out2[WINNER_PROBA_COL] = proba
-    thresh = 0.95 # 
-    out2["is_winner_pred"] = (out2[WINNER_PROBA_COL] >= thresh).astype(int)
+    thresh = 0.95
+    out2 = apply_winner_threshold(out2, WINNER_PROBA_COL, "is_winner_pred", thresh)
 
-    # cleanup and filters
-    gex_columns = [col for col in out2.columns if col.startswith("gex_")]
-    out2.drop(columns=gex_columns, inplace=True, errors='ignore')
-    to_drop = [
-        'baseSymbolType', 'expirationDate',
-        'strike', 'moneyness', 'breakEvenBid', 'percentToBreakEvenBid', 'tradeTime', 'symbol_norm', 'impliedVolatilityRank1y',
-        'delta', 'breakEvenProbability', 'expirationType', 'symbolType',
-        'entry_credit', 'exit_intrinsic', 'total_pnl', 'return_pct',
-        'ret_2d', 'ret_5d', 'ret_2d_norm', 'ret_5d_norm','prev_close','prev_close_minus_ul','prev_close_minus_ul_pct',
-        'log1p_DTE','bid'
-    ]
-    out2.drop(columns=to_drop, inplace=True, errors='ignore')
+    # cleanup and filters using shared function
+    out2 = cleanup_columns_for_production(out2)
     #out2["verdict"] = (out2["is_winner_pred"] == 1) & (out2["is_tail_pred"] == 0)
     #out2 = out2[out2["is_winner_pred"] == 1]
     #out2 = out2[out2["is_tail_pred"] == 0]
