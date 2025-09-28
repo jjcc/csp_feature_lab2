@@ -33,7 +33,7 @@ def _save_cached_price_data(cache_dir, symbol, price_df: pd.DataFrame):
     except Exception as e:
         print(f"[WARN] cache write failed for {symbol}: {e}")
 
-def preload_prices_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None):
+def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=None):
     """
     From the raw CSP rows, determine unique symbols and date window,
     load from cache if available, batch-download missing ones, and save to cache.
@@ -43,10 +43,10 @@ def preload_prices_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None)
     os.makedirs(cache_dir, exist_ok=True)
 
     # Determine symbols and window
-    syms = raw_df['baseSymbol'].dropna().astype(str).str.upper().unique().tolist()
+    # syms = raw_df['baseSymbol'].dropna().astype(str).str.upper().unique().tolist()
     # Window: from min(tradeTime, expiry)-5 days to max(expiry)+1 day
-    tt = pd.to_datetime(raw_df.get('tradeTime', pd.NaT), errors="coerce")
-    ed = pd.to_datetime(raw_df.get('expirationDate', pd.NaT), errors="coerce")
+    #tt = pd.to_datetime(raw_df.get('tradeTime', pd.NaT), errors="coerce")
+    #ed = pd.to_datetime(raw_df.get('expirationDate', pd.NaT), errors="coerce")
     start_dt = pd.to_datetime(min([d for d in pd.concat([tt, ed.dropna()]) if pd.notna(d)]) - pd.Timedelta(days=5))
     # check week day of start_dt
     if start_dt.weekday() == 5:  # Saturday
@@ -184,8 +184,14 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
             # Check if index is already datetime, otherwise look for Date/date columns
             if pd.api.types.is_datetime64_any_dtype(df.index):
                 df = df.sort_index()
-                close_col = "Close" if "Close" in df.columns else "close"
-                return df.loc[start_date:end_date, close_col].rename("Close").astype(float)
+                # check if min and max date cover the range
+                if  start_date >= df.index.min() and end_date < df.index.max():
+                    close_col = "Close" if "Close" in df.columns else "close"
+                    return df.loc[start_date:end_date, close_col].rename("Close").astype(float)
+                else:
+                    # update the price file by downloading from yf
+                    use_yf = True
+                    return None
             else:
                 date_col = "Date" if "Date" in df.columns else "date"
                 close_col = "Close" if "Close" in df.columns else "close"
@@ -214,7 +220,7 @@ def _per_symbol_feature_frame(s_px: pd.Series, start_date, max_trade_date) -> pd
     import numpy as np
     import pandas as pd
 
-    if s_px.empty:
+    if s_px is None or s_px.empty:
         # still return an empty frame on the requested calendar so merge works
         cal = pd.bdate_range(start=start_date, end=max_trade_date)
         return pd.DataFrame(index=cal)
@@ -232,8 +238,7 @@ def _per_symbol_feature_frame(s_px: pd.Series, start_date, max_trade_date) -> pd
         print(f"Reindexing error for symbol prices: {ex}")
         # return empty dataframe
         return pd.DataFrame(index=cal)
-
-    daily_ff = daily.ffill()
+    daily_ff = daily.bfill() # fill NaN caused by holidays with the next day's price
     # critical line: DO NOT ffill beyond last_px_date (keeps today's Close as NaN)
     daily_ff.loc[daily_ff.index > last_px_date] = np.nan
 
@@ -251,7 +256,7 @@ def _per_symbol_feature_frame(s_px: pd.Series, start_date, max_trade_date) -> pd
     out["ret_5d_norm"]  = out["ret_5d"] / vol20.replace(0, np.nan)
     return out
 
-def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol):
+def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol, buffer_days=60, loaded_prices=None):
     if not need_symbol:
         raise SystemExit("Expected baseSymbol column for per-symbol price features.")
 
@@ -265,13 +270,12 @@ def per_symbol_price_feat(PX_BASE_DIR, df, vix_df, need_symbol):
     d["trade_date"] = pd.to_datetime(d["trade_date"], errors="coerce").dt.floor("D")
     for sym in d["baseSymbol"].dropna().unique():
         s_mask = d["baseSymbol"] == sym
-        start = d.loc[s_mask, "trade_date"].min() - pd.Timedelta(days=60)
+        start = d.loc[s_mask, "trade_date"].min() - pd.Timedelta(days=buffer_days)
         # IMPORTANT: end at the **max trade_date** (T), not +1BD in real time
         stop  = d.loc[s_mask, "trade_date"].max()
-
-        s_px = _load_symbol_prices(sym, PX_BASE_DIR, start, stop)
+        s_px = loaded_prices.get(sym) if loaded_prices is not None else None
         # remove duplicated index
-        s_px = s_px[~s_px.index.duplicated(keep="first")]
+        s_px = s_px[~s_px.index.duplicated(keep="first")] if s_px is not None else None
         f = _per_symbol_feature_frame(s_px, start, stop)
         if f.empty:
             f = pd.DataFrame(index=pd.date_range(start, stop, freq="B"))
@@ -304,6 +308,8 @@ def add_macro_features(df, vix_df_or_csv_path, px_base_dir):
 
     Returns:
         DataFrame with macro features added
+    Change Log:
+        - 2025-09-28: Load symbol prices first and check if avaiable. If not, download from yfinance and save to px_base_dir.
     """
     # Parse dates and derive trade_date (calendar day)
     df = df.copy()
@@ -311,20 +317,48 @@ def add_macro_features(df, vix_df_or_csv_path, px_base_dir):
     df["expirationDate"] = _coerce_dt(df["expirationDate"])
     df["trade_date"] = df["tradeTime"].dt.floor("D")
 
+    start_date = df["trade_date"].min() # - pd.Timedelta(days=60)
+    end_date   = df["trade_date"].max() + pd.Timedelta(days=1)
+
     # VIX (global) - handle both DataFrame and CSV path
     if isinstance(vix_df_or_csv_path, pd.DataFrame):
         # Pre-built VIX DataFrame (from task_score_tail_winner.py)
         vix_df = vix_df_or_csv_path
     else:
         # CSV path (from a02merge_macro_features.py)
-        start_date = df["trade_date"].min() # - pd.Timedelta(days=60)
-        end_date   = df["trade_date"].max() + pd.Timedelta(days=1)
         vix = _load_vix(vix_df_or_csv_path, start_date, end_date)
         vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
+    
+    # check all symbols for date range
+    symbol_list = df['baseSymbol'].unique()
+    to_reload = []
+    loaded = {}
+    st = start_date - pd.Timedelta(days=60) # add a time buffer
+    ed = pd.Timestamp.now() 
+    for sym in symbol_list:
+        s_px = _load_symbol_prices(sym, px_base_dir, st, end_date)
+        if s_px is not None and not s_px.empty:
+            s_px = s_px.sort_index()
+            if  st < s_px.index.min() or end_date > s_px.index.max():
+                to_reload.append(sym)
+            else:
+                loaded[sym] = s_px
+        else:
+            to_reload.append(sym)
+    if len(to_reload):
+        print(f"[INFO] Reloading {len(to_reload)} symbols from {px_base_dir} due to date range...")
+
+        #for sym in to_reload:
+        # batch reload prices
+        fetched = download_prices_batched(to_reload, start_date - pd.Timedelta(days=60), pd.Timestamp.now(), batch_size=30, threads=True)
+        for s, price_df in fetched.items():
+            _save_cached_price_data(px_base_dir, s, price_df)
+            close_price = price_df["Close"]
+            loaded[s] = close_price
 
     # Per-symbol price features
     need_symbol = "baseSymbol" in df.columns
-    d = per_symbol_price_feat(px_base_dir, df, vix_df, need_symbol)
+    d = per_symbol_price_feat(px_base_dir, df, vix_df, need_symbol, buffer_days=28, loaded_prices=loaded)
 
     # Gap between previous close and current underlying price
     if "underlyingLastPrice" in d.columns:
