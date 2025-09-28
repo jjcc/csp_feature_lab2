@@ -83,12 +83,32 @@ def preload_prices_with_cache(raw_df, out_dir, batch_size=30, cut_off_date=None)
             _save_cached_price_data(cache_dir, s, price_df)
     return prices
 
-def lookup_close_on_or_before(price_df: pd.DataFrame, target_dt: pd.Timestamp) -> float:
+def lookup_close_on_or_before(price_df: pd.DataFrame, target_dt: pd.Timestamp, max_days_back: int = 3) -> float:
+    """
+    Lookup close price on or before target date, but only if it's within max_days_back.
+    This prevents using stale prices from many days ago for future expiration dates.
+
+    Args:
+        price_df: DataFrame with Close prices indexed by date
+        target_dt: Target expiration date
+        max_days_back: Maximum days back to look for a valid price (default: 3)
+
+    Returns:
+        Close price if found within max_days_back, otherwise np.nan
+    """
     if price_df is None or price_df.empty or pd.isna(target_dt) or 'Close' not in price_df.columns:
         return np.nan
-    sub = price_df[price_df.index<=pd.to_datetime(target_dt)]
-    if len(sub)==0:
+
+    target_dt = pd.to_datetime(target_dt)
+
+    # Only look for prices within max_days_back of the target date
+    min_date = target_dt - pd.Timedelta(days=max_days_back)
+    sub = price_df[(price_df.index >= min_date) & (price_df.index <= target_dt)]
+
+    if len(sub) == 0:
         return np.nan
+
+    # Return the closest price to expiration date within the window
     return float(sub['Close'].iloc[-1])
 
 def derive_capital(df, policy="strike100", constant_capital=10_000.0):

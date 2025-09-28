@@ -22,6 +22,12 @@ from service.preprocess import load_csp_files
 
 from dotenv import load_dotenv
 load_dotenv()
+
+def ensure_cache_dir(out_dir):
+    pc = os.path.join(out_dir, "price_cache")
+    os.makedirs(pc, exist_ok=True)
+    return pc
+
 def main():
 
     data_dir = getenv("DATA_DIR", "")

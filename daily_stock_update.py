@@ -2,8 +2,9 @@
 import pandas as pd
 from datetime import datetime
 import os
-from a00build_basic_dataset import download_prices_batched, ensure_cache_dir, load_cached_price_data, save_cached_price_data
-from service.utils import get_symbols_last_few_days
+from a00build_basic_dataset import ensure_cache_dir
+from service.data_prepare import _save_cached_price_data, _load_cached_price_data
+from service.utils import get_symbols_last_few_days, download_prices_batched
 
 def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date=None, check_date = None):
     """
@@ -39,7 +40,7 @@ def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date
     prices = {}
     missing = []
     for s in syms:
-        price_df, ready = load_cached_price_data(cache_dir, s, check_time=end_dt)
+        price_df, ready = _load_cached_price_data(cache_dir, s, check_time=end_dt)
         if ready and (price_df.index.min() <= start_dt) :
             prices[s] = price_df
         else:
@@ -49,7 +50,7 @@ def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date
         fetched = download_prices_batched(missing, start_dt, end_dt, batch_size=batch_size, threads=True)
         for s, price_df in fetched.items():
             prices[s] = price_df
-            save_cached_price_data(cache_dir, s, price_df)
+            _save_cached_price_data(cache_dir, s, price_df)
     return prices
 
 def get_today_and_prevday(minus = 0):
@@ -68,12 +69,12 @@ def get_today_and_prevday(minus = 0):
 
 def amend_prices(cache_dir, price_df_today, to_update):
     for s in to_update:
-        price_df, ready = load_cached_price_data(cache_dir, s)
+        price_df, ready = _load_cached_price_data(cache_dir, s)
         price_df_today_s = price_df_today.get(s)
         if not ready:
             print(f"Warn: Price data missed for {s}")
         price_df = pd.concat([price_df, price_df_today_s])
-        save_cached_price_data(cache_dir, s, price_df)
+        _save_cached_price_data(cache_dir, s, price_df)
 
 def stock_price_update(test = False):
     previous_day, today = get_today_and_prevday()
@@ -82,6 +83,7 @@ def stock_price_update(test = False):
 
     folder = "option/put"
     end_date = today
+    #end_date = today -pd.Timedelta(days=1) if today.hour < 16 else today 
     files, symbols = get_symbols_last_few_days(folder, end_date)
     # With the symbols, check all the cached prices, check the latest date. For those with previous date, put into a list and update with today's price
     cache_dir = ensure_cache_dir(out_dir)
@@ -116,7 +118,7 @@ def stock_price_update(test = False):
         fetched = download_prices_batched(to_reload, start_date, today, batch_size=40, threads=True)
         # save the prices
         for s, price_df in fetched.items():
-            save_cached_price_data(cache_dir, s, price_df)
+            _save_cached_price_data(cache_dir, s, price_df)
     with open("../logs/price_update.log","a") as f:
         f.write(f"### Price update done at {datetime.now()} with update {len(to_update)}, reload: {len(to_reload)}\n")
         f.write(f"To update: {to_update}\n")

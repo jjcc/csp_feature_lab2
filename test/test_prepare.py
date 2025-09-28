@@ -1,9 +1,10 @@
 import unittest
 import joblib
 import pandas as pd
-from a00build_basic_dataset import download_prices_batched, ensure_cache_dir, save_cached_price_data
+from a00build_basic_dataset import ensure_cache_dir
+from service.data_prepare import _save_cached_price_data
 from daily_stock_update import preload_prices_with_cache_by_time
-from service.utils import get_symbols_last_few_days, fill_features_with_training_medians
+from service.utils import download_prices_batched, get_symbols_last_few_days
 import os
 
 
@@ -29,7 +30,7 @@ class TestPrepare(unittest.TestCase):
         fetched = download_prices_batched(symbols, start_date, end_date, batch_size=40, threads=True)
         for s, price_df in fetched.items():
             prices[s] = price_df
-            save_cached_price_data(cache_dir, s, price_df)
+            _save_cached_price_data(cache_dir, s, price_df)
 
 
         self.assertGreater(len(files), 0, "No files found for the specified dates")
@@ -73,6 +74,51 @@ class TestPrepare(unittest.TestCase):
         vix_data = get_vix_index_histories()
         current_vix = vix_data.iloc[-1]['Close']
         print(f"Current VIX: {current_vix:.2f}")
+    
+    def test_investigate_price_update(self):
+        from daily_stock_update import  stock_price_update, preload_prices_with_cache_by_time
+        out_dir = os.getenv("CACHE_DIR", "./output")
+        # get files  in out_dir
+        files = [f for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f))]
+        print(f"Cached price files: {files}")
+
+        for f in files:
+            path = os.path.join(out_dir, f)
+            df = pd.read_parquet(path)
+            if 'Date' in df.columns:
+                df['Date'] = pd.to_datetime(df['Date'])
+                print(f"{f}: Date range {df['Date'].min()} to {df['Date'].max()}, {len(df)} records")
+            else:
+                print(f"{f}: No 'Date' column found.")
+
+
+
+        #folder = "option/put"
+        #end_date_str = "2025-08-22"
+        #end_date = pd.to_datetime(end_date_str)
+
+        files, symbols = get_symbols_last_few_days(folder, end_date)
+
+        #previous_day, today = self.get_today_and_prevday()
+
+        #check_date = previous_day
+
+        #prices_before = preload_prices_with_cache_by_time(symbols, out_dir, check_date=check_date)
+
+        #stock_price_update(True)
+
+        #prices_after = preload_prices_with_cache_by_time(symbols, out_dir, check_date=check_date)
+
+        #for s in symbols:
+        #    df_before = prices_before.get(s)
+        #    df_after = prices_after.get(s)
+        #    if df_before is None or df_after is None:
+        #        print(f"Symbol {s} missing in before or after prices.")
+        #        continue
+        #    if not df_before.equals(df_after):
+        #        print(f"Prices for {s} have changed after update.")
+        #    else:
+        #        print(f"Prices for {s} are unchanged.")
 
 
 if __name__ == '__main__':

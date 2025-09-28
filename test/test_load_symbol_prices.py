@@ -13,7 +13,7 @@ import time
 # Import the function to test
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from a02merge_macro_features import _load_symbol_prices
+from service.data_prepare import _load_symbol_prices
 
 
 
