@@ -6,6 +6,9 @@ from a00build_basic_dataset import ensure_cache_dir
 from service.data_prepare import _save_cached_price_data, _load_cached_price_data
 from service.utils import get_symbols_last_few_days, download_prices_batched
 
+
+COMMON_START_DATE = "2025-04-11"
+
 def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date=None, check_date = None):
     """
     From the raw CSP rows, determine unique symbols and date window,
@@ -91,7 +94,7 @@ def stock_price_update(test = False):
     to_reload = []
     to_update = []
     for s in symbols:
-        price_df, ready = load_cached_price_data(cache_dir, s)
+        price_df, ready = _load_cached_price_data(cache_dir, s)
         latest_date = price_df.index.max() if ready else None
         # in case latest_date is today then break
         if latest_date and latest_date >= today.replace(hour=0, minute=0, second=0, microsecond=0):
@@ -114,7 +117,9 @@ def stock_price_update(test = False):
         # amend the cache
         amend_prices(cache_dir, price_df_today, to_update)
     if len(to_reload)>0:
-        start_date = previous_day - pd.Timedelta(days=30)
+        #start_date = previous_day - pd.Timedelta(days=30)
+        # use common start date to avoid other training/testing data missing
+        start_date = pd.to_datetime(COMMON_START_DATE)
         fetched = download_prices_batched(to_reload, start_date, today, batch_size=40, threads=True)
         # save the prices
         for s, price_df in fetched.items():
