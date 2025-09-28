@@ -10,9 +10,9 @@ import numpy as np
 import pandas as pd
 from datetime import time
 from pathlib import Path
-from dotenv import load_dotenv
 from service.data_prepare import add_macro_features
 from service.preprocess import  merge_gex
+from service.env_config import getenv
 
 
 def parse_target_time(s: str) -> time:
@@ -25,25 +25,24 @@ def parse_target_time(s: str) -> time:
 
 
 def main():
-    load_dotenv()
 
     # inputs
-    out_dir = os.getenv("OUT_DIR", "output")
-    csv_input = os.getenv("BASIC_CSV")
+    out_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    csv_input = getenv("COMMON_DATA_BASIC_CSV")
     csv_path = f"{out_dir}/{csv_input}"
 
     # GEX source
-    base_dir = os.getenv("GEX_BASE_DIR")
-    target_time_str = os.getenv("GEX_TARGET_TIME", "11:00")
+    base_dir = getenv("GEX_BASE_DIR")
+    target_time_str = getenv("GEX_TARGET_TIME", "11:00")
     if not base_dir:
         raise SystemExit("GEX_BASE_DIR is not set in .env")
 
     # VIX and price sources
-    VIX_CSV     = os.getenv("VIX_CSV", "").strip() or None
-    PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
+    VIX_CSV     = getenv("MACRO_VIX_CSV", "").strip() or None
+    PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
 
     # output
-    MACROFEATURE_CSV = os.getenv("MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")   
+    MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
     out_csv = f"{out_dir}/{MACROFEATURE_CSV}"
 
     target_t = parse_target_time(target_time_str)
@@ -55,7 +54,7 @@ def main():
     # Use shared macro features function
     d = add_macro_features(gex_merged, VIX_CSV, PX_BASE_DIR)
     # filter rows with missing GEX if specified. Default: keep all rows
-    if os.getenv("FILTER_GEX", "0").strip() in {"1","true","yes","y","on"}:
+    if getenv("GEX_FILTER", "0").strip() in {"1","true","yes","y","on"}:
         d = d[d["gex_missing"] == 0].copy()
         out_csv = out_csv.replace(".csv", "_gexonly.csv")
         print(f"Filtered rows with missing GEX, remaining {len(d)} rows.")
