@@ -1,0 +1,262 @@
+# Common configuration groups (must be defined first)
+common_configs:
+  # Original training data (before Aug 10)
+  original: &original_config
+    data_dir: "option/put/unprocessed"
+    data_basic_csv: "trades_raw.csv"
+    macro_feature_csv: "trades_with_gex_macro.csv"
+    output_csv: "labeled_trades.csv"
+
+  # Data after Aug 10
+  aug_10: &aug_10_config
+    data_dir: "option/put/unprocessed2"
+    data_basic_csv: "trades_raw_t1.csv"
+    macro_feature_csv: "trades_with_gex_macro_t2.csv"
+    output_csv: "labeled_trades_t2.csv"
+
+  # Data after Sep 5
+  sep_5: &sep_5_config
+    data_dir: "option/put/unprocessed3"
+    data_basic_csv: "trades_raw_t3.csv"
+    macro_feature_csv: "trades_with_gex_macro_t3.csv"
+    output_csv: "labeled_trades_t3.csv"
+
+# Common values used across sections
+common:
+  output_dir: "output"
+  # Active configuration - change this reference to switch entire config group
+  <<: *original_config  # Change to *aug_10_config or *sep_5_config as needed
+
+# Data Directory Configuration
+data:
+  # now in common section
+
+  # Additional data-specific settings
+  glob: "coveredPut_*.csv"
+  target_time: "11:00"
+  batch_size: 30
+  all_snapshots: 0
+  refresh_cache: 0
+  cache_dir: "output"
+
+  # Historical configurations (now managed via active_config above)
+  # Original: option/put/unprocessed + trades_raw.csv
+  # Aug 10+: option/put/unprocessed2 + trades_raw_t1.csv
+  # Sep 5+: option/put/unprocessed3 + trades_raw_t3.csv
+
+# GEX and Macro Features Configuration
+gex:
+  base_dir: "gex101"
+  target_time: "11:00"
+  filter: 0
+
+macro:
+  vix_csv: "output/vix_data.csv"
+  px_base_dir: "output/price_cache"
+  # Training
+  #feature_csv: "trades_with_gex_macro.csv"
+  # now in common section
+  
+  # Historical configurations (now managed via active_config above)
+  # after Aug 10
+  # feature_csv: "trades_with_gex_macro_t1a.csv"
+  # after Sep 5
+  # feature_csv: "trades_with_gex_macro_t1a.csv"
+  # feature_csv: "trades_with_gex_macro_t2.csv"
+
+# Fundamentals and Events (not used yet)
+fundamentals:
+  earnings_csv: "output/symbol_info/earnings_calendar.csv"
+
+# Label Data Configuration
+labeling:
+  <<: *original_config  # Change to *aug_10_config or *sep_5_config as needed
+
+  #output_csv: "labeled_trades.csv"
+  # test 1
+  # output_csv: "labeled_trades_t1a.csv"
+  # test 2
+  # output_csv: "labeled_trades_tr3.csv"
+
+# Winner Classifier Configuration
+winner:
+  # Required
+  input: "output/labeled_trades_enriched.csv"
+  # no earnings(ne), stratified, with weights(w), using epsilon=0.02(ep)
+  output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm"
+  # output_dir: "output/winner_train/v6_oof_ne_straied_w_catboost"
+
+  # Now only base name, will be combined with the model type (lgbm, rf, catboost)
+  model_name: "winner_classifier_v7"
+  # options are return_mon, return_ann, return_pct
+  train_target: "return_mon"
+  model_type: "lgbm"  # Options: lgbm, catboost, rf
+
+  # Optional
+  features: ""
+  id_cols: "symbol,tradeTime,return_pct,return_mon,return_ann,daysToExpiration"
+  test_size: 0.3
+  random_state: 42
+  classifier_n_estimators: 400
+  class_weight: "balanced_subsample"
+  max_depth: ""
+  min_samples_leaf: 1
+  min_samples_split: 2
+
+  # Missing value strategy
+  # 1=median impute (on train only); 0=drop rows with NaNs
+  impute_missing: 1
+
+  # Sample weights tied to |return_pct|
+  use_weights: 1
+  weight_alpha: 0.08
+  weight_min: 0.5
+  weight_max: 10.0
+
+  # Threshold targets for reporting (can be comma separated or JSON)
+  target_recall: ""
+  target_precision: "0.88,0.92"
+
+  # OOF training
+  oof_folds: 5
+  # 'auto' (use TimeSeries if trade_date present), '1' to force TimeSeries, '0' to force Stratified
+  time_series: 1
+
+# Winner Scoring Configuration
+winner_scoring:
+  score_input: "output/labeled_trades_tr2.csv"
+  # score_input: "output/labeled_trades_normal.csv"
+  # score_input: "output/labeled_trades_t1.csv"
+  # score_input: "output/labeled_trades_tr3.csv"
+
+  model_in: "output/winner_train/external/winner_classifier_v6_oof_ne_w_lgbm.pkl"
+  # model_in: "output/winner_train/v6_oof2/winner_classifier_model_v6_oof.pkl"
+  # model_in: "output/winner_train/v6/winner_classifier_model_v6.pkl"
+  # model_in: "output/winner_train/v6_oof_ne/winner_classifier_model_v6_oof_ne.pkl"
+  # model_in: "output/winner_train/external/winner_classifier_v6_oof_ne_w_rfctr_lgbm.pkl"
+  # model_in: "output/winner_train/v6_oof_ne_ts_w_lgbm_gex/winner_classifier_v6_oof_ne_w_lgbm.pkl"
+
+  score_out_folder: "output/winner_score/v7_lgbm_score_t2"
+  # score_out_folder: "output/winner_score/extern_rfctr_lgbm"
+  # the data removed the future not expired trades
+  # score_out_folder: "output/winner_score/rfctr_lgbm_fix"
+  # score refactored
+  # score_out_folder: "output/winner_score/rfctr_lgbm_score_rfctr"
+
+  score_out: "scores_winner_rfctr_lgbm_tr2.csv"
+  # score_out: "scores_winner_rfctr_lgbm_tr3.csv"
+
+  proba_col: "win_proba"
+  pred_col: "win_predict"
+
+  # For splitting train and test generated in training, in the folder winner.output_dir
+  split_file: "winner_scores_split.csv"
+  oof_file: ""
+
+  # Threshold policy
+  threshold: ""  # fixed numeric override
+  use_pack_best_f1: 1  # use best F1 from training pack if no fixed threshold and no auto-calibration
+  target_precision: 0.90  # if auto_calibrate=1 and labels exist, pick lowest threshold achieving >= this
+  target_recall: ""
+  auto_calibrate: 1  # set to 1 only when scored CSV includes labels and want data-driven threshold
+
+# Tail Loss Model Configuration
+tail:
+  out_dir: "output/tails_train/v6b_we"
+  model_out: "tail_model_gex_v6b_ne_cut05.pkl"
+  imp_out: "tail_gex_v6b_ne_cut05_feature_importances.csv"
+  scores_out: "tail_gex_v6b_ne_cut05_scores_oof.csv"
+  metrics_out: "tail_train_metrics_v6b_ne_cut05.json"
+  save_scores_sample: 40000
+  label_on: "per_month"  # Options: raw, annualized, per_month
+
+  # Labeling
+  pct: 0.05  # Tail fraction by dollar PnL quantile (e.g., 0.03 = worst 3%)
+
+  # Cross-Validation
+  cv_type: "stratified"  # Options: stratified, time
+  folds: 8
+  seed: 42
+
+  out_dir_general: "output"
+
+# Tail Scoring Configuration
+tail_scoring:
+  score_input: "output/labeled_trades_enriched2.csv"
+  # score_input: "output/labeled_trades_enriched.csv"
+
+  # model_in: "models/tail_model_gex_v3lean_cut05.pkl"  # use the output of training instead
+  score_out: "output/tails_score/scored_with_tail_pct_mon_cut5_new.csv"
+  keep_proba_col: "tail_proba"
+  pred_col: "is_tail_preda"
+
+  # Threshold data for cut 5 from result
+  # Following is for training
+  # Target Recall | Threshold | Actual Recall | Precision | Keep Rate
+  # 0.83         | 0.063     | 0.830         | 0.212     | 80.6%
+  # 0.90         | 0.043     | 0.900         | 0.175     | 74.4%
+  # 0.92         | 0.036     | 0.920         | 0.161     | 71.6%
+  # 0.96         | 0.020     | 0.960         | 0.129     | 63.1%
+  threshold: 0.030
+
+  # Optional alternatives:
+  # threshold_from: "best_f1"
+  # metrics_in: "/mnt/data/tail_train_metrics_v1.json"
+
+# Evaluation Configuration
+evaluation:
+  # Evaluate the tail model
+  input: "output/tails_score/scored_with_tail_pct_mon_cut5_new.csv"
+  # input: "output/tails_score/scored_with_tail_pct_mon_cut5.csv"
+  # input: "output/tails_score/tail_gex_p35_scores_y2.csv"
+
+  output_dir: "output/eval/tail_scored/"
+
+  # Evaluate the winner classifier training dataset (the test set)
+  # input: "output/winner_train/v4/winner_scores_split.csv"
+  # output_dir: "output/eval/win/"
+
+  # Evaluate the scored training dataset (the test set)
+  # input: "output/winner_score/scores_winner.csv"
+  # output_dir: "output/eval/win_scored/"
+
+  # Probabilities & thresholds
+  proba_col: "tail_proba"
+  # proba_col: "proba"
+  # proba_col: "score"
+
+  fixed_thresholds: ""  # Fixed thresholds (optional)
+
+  # For tail model, use target recall
+  target_recall: "0.86,0.92"
+  # For winner model, use target precision
+  # target_precision: "0.90,0.95,0.98"
+
+  # Label mode
+  # winner -> label = (return_pct > 0)
+  # tail_pct -> label = (return_pct <= quantile(K))
+  # tail_pnl -> label = (total_pnl <= quantile(K))
+  # provided -> label from label_col
+  label_mode: "tail_pct"  # Options: winner, tail_pct, tail_pnl, provided
+  tail_k: 0.05
+  label_col: ""
+  return_col: "return_mon"
+  # pnl_col: "total_pnl"
+
+  split_col: "is_train"
+
+  # Optional filtering/grouping
+  filter_query: ""  # Example: only evaluate short-dated trades
+  group_cols: "daysToExpiration"  # Example: compute AUC/PR by dte bucket
+
+# General Configuration
+general:
+  symbol_col: "baseSymbol"
+  trade_date_col: "trade_date"
+  drop_duplicates: true
+  strict_length_check: true
+
+# Rescue Model Configuration
+rescue:
+  out: "output/rescue_tail/v2d"
+

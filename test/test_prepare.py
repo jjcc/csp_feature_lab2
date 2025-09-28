@@ -78,18 +78,22 @@ class TestPrepare(unittest.TestCase):
     def test_investigate_price_update(self):
         from daily_stock_update import  stock_price_update, preload_prices_with_cache_by_time
         out_dir = os.getenv("CACHE_DIR", "./output")
-        # get files  in out_dir
-        files = [f for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f))]
-        print(f"Cached price files: {files}")
+        cache_dir = ensure_cache_dir(out_dir)
+        # get files  in cache_dir
+        files = [f for f in os.listdir(cache_dir) if os.path.isfile(os.path.join(cache_dir, f))]
+        #print(f"Cached price files: {files}")
+        print(f"Cached price files count: {len(files)}")
 
         for f in files:
-            path = os.path.join(out_dir, f)
+            if not f.endswith(".parquet"):
+                continue
+            path = os.path.join(cache_dir, f)
             df = pd.read_parquet(path)
-            if 'Date' in df.columns:
-                df['Date'] = pd.to_datetime(df['Date'])
-                print(f"{f}: Date range {df['Date'].min()} to {df['Date'].max()}, {len(df)} records")
-            else:
-                print(f"{f}: No 'Date' column found.")
+            # the index column is datetime index, it's called "Date"
+            min = df.index.min()
+            max = df.index.max()
+            print(f"{f}: Date range {min} to {max}, {len(df)} records")
+
 
 
 
@@ -97,7 +101,7 @@ class TestPrepare(unittest.TestCase):
         #end_date_str = "2025-08-22"
         #end_date = pd.to_datetime(end_date_str)
 
-        files, symbols = get_symbols_last_few_days(folder, end_date)
+        #files, symbols = get_symbols_last_few_days(folder, end_date)
 
         #previous_day, today = self.get_today_and_prevday()
 
@@ -119,7 +123,18 @@ class TestPrepare(unittest.TestCase):
         #        print(f"Prices for {s} have changed after update.")
         #    else:
         #        print(f"Prices for {s} are unchanged.")
-
+    def test_get_config(self):
+        from service.env_config import getenv
+        data_dir = getenv("COMMON_DATA_DIR")
+        basic_csv = getenv("COMMON_DATA_BASIC_CSV", "labeled_trades_normal.csv")
+        output_dir = getenv("COMMON_OUTPUT_DIR", "./output")
+        output_csv = getenv("COMMON_OUTPUT_CSV", "labeled_trades.csv")
+        self.assertIsNotNone(data_dir)
+        self.assertIsNotNone(basic_csv)
+        self.assertIsNotNone(output_dir)
+        self.assertIsNotNone(output_csv)
+        print(f"Data dir: {data_dir}, Basic CSV: {basic_csv}")
+        print(f"Output dir: {output_dir}, Output CSV: {output_csv}")
 
 if __name__ == '__main__':
     unittest.main()
