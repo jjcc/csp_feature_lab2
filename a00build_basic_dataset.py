@@ -17,11 +17,8 @@ Outputs (in the same folder as this script):
 """
 
 import os
-from os import getenv
-from service.preprocess import load_csp_files 
-
-from dotenv import load_dotenv
-load_dotenv()
+from service.preprocess import load_csp_files
+from service.env_config import getenv
 
 def ensure_cache_dir(out_dir):
     pc = os.path.join(out_dir, "price_cache")
@@ -30,9 +27,9 @@ def ensure_cache_dir(out_dir):
 
 def main():
 
-    data_dir = getenv("DATA_DIR", "")
-    glob_pat = getenv("GLOB", "coveredPut_*.csv")
-    target_time = getenv("TARGET_TIME", "11:00")
+    data_dir = getenv("COMMON_DATA_DIR", "")
+    glob_pat = getenv("DATA_GLOB", "coveredPut_*.csv")
+    target_time = getenv("DATA_TARGET_TIME", "11:00")
 
     raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=True)
     #raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=False)
@@ -40,8 +37,8 @@ def main():
     # rename index to "row_id" for tracking
     raw = raw.reset_index().rename(columns={"index": "row_id"})
 
-    basic_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
-    out_dir = getenv("OUTPUT_DIR", "./output")
+    basic_csv = getenv("COMMON_DATA_BASIC_CSV", "labeled_trades_normal.csv")
+    out_dir = getenv("COMMON_OUTPUT_DIR", "./output")
     raw.to_csv(os.path.join(out_dir, basic_csv), index=False)
 
 
