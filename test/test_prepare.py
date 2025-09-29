@@ -3,8 +3,9 @@ import joblib
 import pandas as pd
 from a00build_basic_dataset import ensure_cache_dir
 from service.data_prepare import _load_symbol_prices, _save_cached_price_data
-from daily_stock_update import COMMON_START_DATE, preload_prices_with_cache_by_time
+from daily_stock_update import preload_prices_with_cache_by_time
 from service.utils import download_prices_batched, get_symbols_last_few_days
+from service.data_prepare import COMMON_START_DATE
 import os
 
 

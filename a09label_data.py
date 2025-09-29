@@ -6,8 +6,8 @@ import pandas as pd
 from service.data_prepare import derive_capital, lookup_close_on_or_before, preload_prices_with_cache
 from service.preprocess import load_csp_files 
 
-from dotenv import load_dotenv
-load_dotenv()
+from service.env_config import getenv
+
 
 
 

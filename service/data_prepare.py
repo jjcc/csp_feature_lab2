@@ -2,11 +2,12 @@
 import os
 import numpy as np
 import pandas as pd
-from daily_stock_update import COMMON_START_DATE
 from service.utils import download_prices_batched 
 import numpy as np
 from pathlib import Path
 import yfinance as yf
+
+COMMON_START_DATE = "2025-04-01" # 2025-04-25  minus 24 days
 
 
 # moved from a00build_basic_dataset.py
@@ -187,7 +188,7 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
             if pd.api.types.is_datetime64_any_dtype(df.index):
                 df = df.sort_index()
                 # check if min and max date cover the range
-                if  start_date >= df.index.min() and end_date < df.index.max():
+                if  start_date >= df.index.min() and end_date - pd.Timedelta(days=1) <= df.index.max():
                     close_col = "Close" if "Close" in df.columns else "close"
                     return df.loc[start_date:end_date, close_col].rename("Close").astype(float)
                 else:

@@ -8,9 +8,10 @@ Contains functions extracted from task_score_tail_winner.py for reuse.
 import os
 import pandas as pd
 from datetime import datetime, time
-from service.data_prepare import _load_vix, add_macro_features
+from service.data_prepare import COMMON_START_DATE, _load_vix, add_macro_features
 from service.get_vix import get_current_vix, init_driver, url_vix
 from service.preprocess import merge_gex
+from service.env_config import getenv
 
 
 def parse_target_time(s: str) -> time:
@@ -33,7 +34,7 @@ def add_features(target_minutes: int, option_file: str, target_date: str) -> pd.
     Returns:
         DataFrame with added features
     """
-    gex_base_dir = os.getenv("GEX_BASE_DIR")
+    gex_base_dir = getenv("GEX_BASE_DIR")
     trades = pd.read_csv(option_file)
     df_o = merge_gex(trades, gex_base_dir, target_minutes=target_minutes)
 
@@ -43,7 +44,7 @@ def add_features(target_minutes: int, option_file: str, target_date: str) -> pd.
     vix_df = get_vix(today, target_date=datetime.strptime(target_date, "%Y-%m-%d").date())
 
     # Use shared macro features function with pre-built VIX DataFrame
-    PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()
+    PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip()
     df_o = add_macro_features(df_o, vix_df, PX_BASE_DIR)
     return df_o
 
@@ -60,10 +61,11 @@ def get_vix(today: datetime, target_date=None) -> pd.DataFrame:
     """
     if target_date is not None:
         if target_date != today.date():
-            VIX_CSV = os.getenv("VIX_CSV", "").strip() or None
+            VIX_CSV = getenv("MACRO_VIX_CSV", "").strip() or None
             start_date = target_date - pd.Timedelta(days=1)
             end_date = target_date + pd.Timedelta(days=1)
-            vix = _load_vix(VIX_CSV, start_date, end_date)
+            st = pd.to_datetime(COMMON_START_DATE)
+            vix = _load_vix(VIX_CSV, st, end_date)
             vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
             print(f"Target date {target_date} is not today {today.date()}, skip VIX fetch.")
             return vix_df
