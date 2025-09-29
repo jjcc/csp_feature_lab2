@@ -2,6 +2,7 @@
 import os
 import numpy as np
 import pandas as pd
+from daily_stock_update import COMMON_START_DATE
 from service.utils import download_prices_batched 
 import numpy as np
 from pathlib import Path
@@ -76,8 +77,9 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
     if missing:
         print(f"[INFO] Downloading {len(missing)} symbols in batches (size={batch_size})...")
         fetched_start = start_dt - pd.Timedelta(days=10)
+        st = pd.to_datetime(COMMON_START_DATE)
         fetched_end = pd.Timestamp.now()
-        fetched = download_prices_batched(missing, fetched_start, fetched_end, batch_size=batch_size, threads=True)
+        fetched = download_prices_batched(missing, st, fetched_end, batch_size=batch_size, threads=True)
         for s, price_df in fetched.items():
             prices[s] = price_df
             _save_cached_price_data(cache_dir, s, price_df)
@@ -350,7 +352,8 @@ def add_macro_features(df, vix_df_or_csv_path, px_base_dir):
 
         #for sym in to_reload:
         # batch reload prices
-        fetched = download_prices_batched(to_reload, start_date - pd.Timedelta(days=60), pd.Timestamp.now(), batch_size=30, threads=True)
+        st = pd.to_datetime(COMMON_START_DATE)
+        fetched = download_prices_batched(to_reload, st, pd.Timestamp.now(), batch_size=30, threads=True)
         for s, price_df in fetched.items():
             _save_cached_price_data(px_base_dir, s, price_df)
             close_price = price_df["Close"]

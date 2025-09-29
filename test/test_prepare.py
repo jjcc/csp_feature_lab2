@@ -2,8 +2,8 @@ import unittest
 import joblib
 import pandas as pd
 from a00build_basic_dataset import ensure_cache_dir
-from service.data_prepare import _save_cached_price_data
-from daily_stock_update import preload_prices_with_cache_by_time
+from service.data_prepare import _load_symbol_prices, _save_cached_price_data
+from daily_stock_update import COMMON_START_DATE, preload_prices_with_cache_by_time
 from service.utils import download_prices_batched, get_symbols_last_few_days
 import os
 
@@ -27,7 +27,9 @@ class TestPrepare(unittest.TestCase):
 
         cache_dir = ensure_cache_dir(out_dir)
 
-        fetched = download_prices_batched(symbols, start_date, end_date, batch_size=40, threads=True)
+        st = pd.to_datetime(COMMON_START_DATE)
+
+        fetched = download_prices_batched(symbols, st, end_date, batch_size=40, threads=True)
         for s, price_df in fetched.items():
             prices[s] = price_df
             _save_cached_price_data(cache_dir, s, price_df)
@@ -94,35 +96,16 @@ class TestPrepare(unittest.TestCase):
             max = df.index.max()
             print(f"{f}: Date range {min} to {max}, {len(df)} records")
 
+    def test_load_cached_prices(self):
+        cache_dir = "./output/price_cache"
+        s = "FND"
+        st = pd.to_datetime("2025-06-09")
+        et = pd.to_datetime("2025-09-06")
+        s_px = _load_symbol_prices( s,cache_dir, st, et)
+        assert s_px is not None
 
 
 
-        #folder = "option/put"
-        #end_date_str = "2025-08-22"
-        #end_date = pd.to_datetime(end_date_str)
-
-        #files, symbols = get_symbols_last_few_days(folder, end_date)
-
-        #previous_day, today = self.get_today_and_prevday()
-
-        #check_date = previous_day
-
-        #prices_before = preload_prices_with_cache_by_time(symbols, out_dir, check_date=check_date)
-
-        #stock_price_update(True)
-
-        #prices_after = preload_prices_with_cache_by_time(symbols, out_dir, check_date=check_date)
-
-        #for s in symbols:
-        #    df_before = prices_before.get(s)
-        #    df_after = prices_after.get(s)
-        #    if df_before is None or df_after is None:
-        #        print(f"Symbol {s} missing in before or after prices.")
-        #        continue
-        #    if not df_before.equals(df_after):
-        #        print(f"Prices for {s} have changed after update.")
-        #    else:
-        #        print(f"Prices for {s} are unchanged.")
     def test_get_config(self):
         from service.env_config import getenv
         data_dir = getenv("COMMON_DATA_DIR")
