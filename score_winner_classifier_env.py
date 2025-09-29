@@ -25,6 +25,7 @@ from service.winner_scoring import (
     write_winner_summary, write_winner_metrics
 )
 from service.production_data import add_features, parse_target_time
+from service.env_config import getenv
 
 
 @dataclass
@@ -54,60 +55,59 @@ class ScoringConfig:
 
 def load_scoring_config() -> ScoringConfig:
     """Load and validate configuration from environment variables."""
-    load_env_default()
 
-    csv_in = os.getenv("WINNER_SCORE_INPUT", "./candidates.csv")
-    gex_filter = str(os.getenv("FILTER_GEX", "0")).lower() in {"1", "true", "yes", "y", "on"}
+    csv_in = getenv("WINNERSCORE_SCORE_INPUT", "./candidates.csv")
+    gex_filter = str(getenv("GEX_FILTER", "0")).lower() in {"1", "true", "yes", "y", "on"}
 
     use_other_model = False  # TODO: Make this configurable
 
     if use_other_model:
-        model_in = os.getenv("WINNER_MODEL_IN", "./output_winner/model_pack.pkl")
+        model_in = getenv("WINNERSCORE_MODEL_IN", "./output_winner/model_pack.pkl")
         model_type = ""
     else:
-        model_type = os.getenv("WINNER_MODEL_TYPE", "lgbm").strip().lower()
+        model_type = getenv("WINNER_MODEL_TYPE", "lgbm").strip().lower()
         model_in = os.path.join(
-            os.getenv("WINNER_OUTPUT_DIR", "output"),
-            f"{os.getenv('WINNER_MODEL_NAME')}_{model_type}.pkl"
+            getenv("WINNER_OUTPUT_DIR", "output"),
+            f"{getenv('WINNER_MODEL_NAME')}_{model_type}.pkl"
         )
 
-    csv_out_dir = os.getenv("WINNER_SCORE_OUT_FOLDER", "output/winner_score/folder1")
-    csv_out = os.path.join(csv_out_dir, os.getenv("WINNER_SCORE_OUT", "scores_winner.csv"))
+    csv_out_dir = getenv("WINNERSCORE_SCORE_OUT_FOLDER", "output/winner_score/folder1")
+    csv_out = os.path.join(csv_out_dir, getenv("WINNERSCORE_SCORE_OUT", "scores_winner.csv"))
 
-    fixed_thr = os.getenv("WINNER_SCORE_THRESHOLD", "").strip()
+    fixed_thr = getenv("WINNERSCORE_THRESHOLD", "").strip()
     fixed_threshold = float(fixed_thr) if fixed_thr else None
 
-    target_prec = os.getenv("WINNER_SCORE_TARGET_PRECISION", "").strip()
-    target_recall = os.getenv("WINNER_SCORE_TARGET_RECALL", "").strip()
+    target_prec = getenv("WINNERSCORE_TARGET_PRECISION", "").strip()
+    target_recall = getenv("WINNERSCORE_TARGET_RECALL", "").strip()
 
     target_precisions = [float(x.strip()) for x in target_prec.split(",") if x.strip()] if target_prec else []
     target_recalls = [float(x.strip()) for x in target_recall.split(",") if x.strip()] if target_recall else []
 
-    split_file = os.getenv("WINNER_SPLIT_FILE", "").strip()
+    split_file = getenv("WINNERSCORE_SPLIT_FILE", "").strip()
     if split_file:
-        split_file = os.path.join(os.getenv("WINNER_OUTPUT_DIR", "output"), split_file)
+        split_file = os.path.join(getenv("WINNER_OUTPUT_DIR", "output"), split_file)
 
     return ScoringConfig(
         csv_in=csv_in,
         model_in=model_in,
         csv_out_dir=csv_out_dir,
         csv_out=csv_out,
-        proba_col=os.getenv("WINNER_PROBA_COL", "prob_winner"),
-        pred_col=os.getenv("WINNER_PRED_COL", "pred_winner"),
-        train_target=os.getenv("WINNER_TRAIN_TARGET", "return_mon").strip(),
+        proba_col=getenv("WINNERSCORE_PROBA_COL", "prob_winner"),
+        pred_col=getenv("WINNERSCORE_PRED_COL", "pred_winner"),
+        train_target=getenv("WINNER_TRAIN_TARGET", "return_mon").strip(),
         gex_filter=gex_filter,
         use_other_model=use_other_model,
         model_type=model_type,
         fixed_threshold=fixed_threshold,
-        use_pack_f1=str(os.getenv("WINNER_SCORE_USE_PACK_BEST_F1", "1")).lower() in {"1", "true", "yes", "y", "on"},
+        use_pack_f1=str(getenv("WINNER_SCORE_USE_PACK_BEST_F1", "1")).lower() in {"1", "true", "yes", "y", "on"},
         target_precisions=target_precisions,
         target_recalls=target_recalls,
-        auto_calibrate=str(os.getenv("WINNER_SCORE_AUTO_CALIBRATE", "0")).lower() in {"1", "true", "yes", "y", "on"},
+        auto_calibrate=str(getenv("WINNER_SCORE_AUTO_CALIBRATE", "0")).lower() in {"1", "true", "yes", "y", "on"},
         split_file=split_file,
         use_oof=True,  # TODO: Make this configurable
-        train_epsilon=float(os.getenv("WINNER_TRAIN_EPSILON", "0.00")),
-        write_sweep=str(os.getenv("WRITE_SWEEP", "1")).lower() in {"1", "true", "yes", "y", "on"},
-        process_on_fly=str(os.getenv("PROCESS_ON_FLY", "0")).lower() in {"1", "true", "yes", "y", "on"}
+        train_epsilon=float(getenv("WINNER_TRAIN_EPSILON", "0.00")),
+        write_sweep=str(getenv("WRITE_SWEEP", "1")).lower() in {"1", "true", "yes", "y", "on"},
+        process_on_fly=str(getenv("PROCESS_ON_FLY", "0")).lower() in {"1", "true", "yes", "y", "on"}
     )
 
 
@@ -208,7 +208,7 @@ def write_outputs(config: ScoringConfig, out: pd.DataFrame, chosen_thr: float, y
 
     # Write threshold sweep analysis
     if config.write_sweep:
-        out_scored = os.getenv("OUT_SCORED", config.csv_out.replace(".csv", "_scored.csv"))
+        out_scored = config.csv_out.replace(".csv", "_scored.csv")
         write_threshold_sweep(proba, y, out_scored)
 
 

@@ -79,6 +79,7 @@ import joblib
 from service.utils import BASE_FEATS, GEX_FEATS, NEW_FEATS
 from service.preprocess import add_dte_and_normalized_returns
 from sklearn.inspection import permutation_importance
+from service.env_config import getenv
 
 
 # ---------- Configuration ----------
@@ -87,7 +88,6 @@ class WinnerClassifierConfig:
     """Configuration parser for Winner Classifier training."""
 
     def __init__(self):
-        load_dotenv()
         self._parse_config()
 
     def _parse_list_env(self, val: str) -> List[float]:
@@ -143,43 +143,43 @@ class WinnerClassifierConfig:
     def _parse_config(self):
         """Parse all configuration from environment variables."""
         # I/O paths
-        self.output_dir = os.getenv("WINNER_OUTPUT_DIR")
-        self.input_csv = os.getenv("OUTPUT_DIR") + "/" + os.getenv("OUTPUT_CSV")
-        self.model_name = os.getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
+        self.output_dir = getenv("WINNER_OUTPUT_DIR")
+        self.input_csv = getenv("COMMON_OUTPUT_DIR") + "/" + getenv("COMMON_OUTPUT_CSV")
+        self.model_name = getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
 
         # Features
         earning_feats = ["is_earnings_week", "is_earnings_window", "post_earnings_within_3d"]
         self.features = BASE_FEATS + NEW_FEATS + ["gex_neg", "gex_center_abs_strike", "gex_total_abs"]
-        self.id_cols = self._parse_str_list(os.getenv("WINNER_ID_COLS"))
+        self.id_cols = self._parse_str_list(getenv("WINNER_ID_COLS"))
 
         # Model parameters
-        self.random_state = int(os.getenv("WINNER_RANDOM_STATE", "42"))
-        self.n_estimators = int(os.getenv("WINNER_CLASSIFIER_N_ESTIMATORS", "400"))
-        self.class_weight = self._maybe_none(os.getenv("WINNER_CLASS_WEIGHT", "balanced_subsample"))
-        self.max_depth = self._maybe_int(os.getenv("WINNER_MAX_DEPTH", ""))
-        self.min_samples_leaf = int(os.getenv("WINNER_MIN_SAMPLES_LEAF", "1"))
-        self.min_samples_split = int(os.getenv("WINNER_MIN_SAMPLES_SPLIT", "2"))
-        self.model_type = os.getenv("WINNER_MODEL_TYPE", "rf").lower()
+        self.random_state = int(getenv("WINNER_RANDOM_STATE", "42"))
+        self.n_estimators = int(getenv("WINNER_CLASSIFIER_N_ESTIMATORS", "400"))
+        self.class_weight = self._maybe_none(getenv("WINNER_CLASS_WEIGHT", "balanced_subsample"))
+        self.max_depth = self._maybe_int(getenv("WINNER_MAX_DEPTH", ""))
+        self.min_samples_leaf = int(getenv("WINNER_MIN_SAMPLES_LEAF", "1"))
+        self.min_samples_split = int(getenv("WINNER_MIN_SAMPLES_SPLIT", "2"))
+        self.model_type = getenv("WINNER_MODEL_TYPE", "rf").lower()
 
         # Preprocessing
-        self.impute_missing = self._parse_bool(os.getenv("WINNER_IMPUTE_MISSING", "1"))
-        self.use_weights = self._parse_bool(os.getenv("WINNER_USE_WEIGHTS", "1"))
-        self.weight_alpha = float(os.getenv("WINNER_WEIGHT_ALPHA", "0.02"))
-        self.weight_min = float(os.getenv("WINNER_WEIGHT_MIN", "0.5"))
-        self.weight_max = float(os.getenv("WINNER_WEIGHT_MAX", "10.0"))
+        self.impute_missing = self._parse_bool(getenv("WINNER_IMPUTE_MISSING", "1"))
+        self.use_weights = self._parse_bool(getenv("WINNER_USE_WEIGHTS", "1"))
+        self.weight_alpha = float(getenv("WINNER_WEIGHT_ALPHA", "0.02"))
+        self.weight_min = float(getenv("WINNER_WEIGHT_MIN", "0.5"))
+        self.weight_max = float(getenv("WINNER_WEIGHT_MAX", "10.0"))
 
         # Training
-        self.train_target = os.getenv("WINNER_TRAIN_TARGET", "return_mon").strip()
-        self.oof_folds = int(os.getenv("WINNER_OOF_FOLDS", "5"))
-        self.time_series = os.getenv("WINNER_TIME_SERIES", "auto").strip().lower()
+        self.train_target = getenv("WINNER_TRAIN_TARGET", "return_mon").strip()
+        self.oof_folds = int(getenv("WINNER_OOF_FOLDS", "5"))
+        self.time_series = getenv("WINNER_TIME_SERIES", "auto").strip().lower()
 
         # Evaluation
-        self.targets_recall = self._parse_list_env(os.getenv("WINNER_TARGET_RECALL", ""))
-        self.targets_precision = self._parse_list_env(os.getenv("WINNER_TARGET_PRECISION", ""))
+        self.targets_recall = self._parse_list_env(getenv("WINNER_TARGET_RECALL", ""))
+        self.targets_precision = self._parse_list_env(getenv("WINNER_TARGET_PRECISION", ""))
 
         # Early stopping (for gradient boosting models)
-        self.early_stopping_rounds = int(os.getenv("WINNER_EARLY_STOPPING_ROUNDS", "100"))
-        self.valid_fraction = float(os.getenv("WINNER_VALID_FRACTION", "0.1"))
+        self.early_stopping_rounds = int(getenv("WINNER_EARLY_STOPPING_ROUNDS", "100"))
+        self.valid_fraction = float(getenv("WINNER_VALID_FRACTION", "0.1"))
 
         # Validation
         if not self.input_csv or not self.output_dir:
@@ -304,6 +304,7 @@ class ModelFactory:
             )
         elif config.model_type == "catboost":
             from catboost import CatBoostClassifier
+            # TODD: environment variables still use the old version
             return CatBoostClassifier(
                 iterations=int(os.getenv("CAT_ITERS", "4000")),
                 learning_rate=float(os.getenv("CAT_LR", "0.05")),
@@ -540,7 +541,11 @@ def main():
     cv_handler = CrossValidator(config, preprocessor)
 
     # Load and prepare data
-    df = pd.read_csv(config.input_csv)
+    #df = pd.read_csv(config.input_csv)
+    # alternative
+    input_csv1 = "output/labeled_trades_tr_t1_merged.csv"
+    input_csv2 = "output/labeled_trades_tr_t2_merged_minus.csv"
+    df = pd.read_csv(input_csv1)
 
     df, y, features, weights, has_time = preprocessor.prepare_data(df)
 
