@@ -110,12 +110,13 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     return df
 
 def label_csv_file(raw):
-    cut_off_date = "2025-09-06"
     #cut_off_date = "2025-08-08"
+    #cut_off_date = "2025-09-06"
+    cut_off_date = "2025-09-11" # the 3rd folder in "unprocessed3"
     cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else pd.Timestamp.now()
-    batch_size = int(getenv("BATCH_SIZE", "30"))
+    batch_size = int(getenv("DATA_BATCH_SIZE", "30"))
     #processed_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
-    labeled_csv = getenv("OUTPUT_CSV", "labeled_trades_t1.csv")
+    labeled_csv = getenv("COMMON_OUTPUT_CSV", "labeled_trades_t1.csv")
 
     # Filter out trades with future expiration dates before labeling
     raw_copy = raw.copy()
@@ -139,21 +140,27 @@ def label_csv_file(raw):
         print(f"Remaining trades to label: {after_count}")
 
     # Preload price series with caching
-    cache_dir = getenv("CACHE_DIR", "./output")
-    closes = preload_prices_with_cache(raw_copy, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
+    cache_dir = getenv("COMMON_OUTPUT_DIR", "./output")
+    
+    # modified to use syms, tt, ed instead of raw_copy to calculate inside the function
+    syms = raw_copy['baseSymbol'].dropna().astype(str).str.upper().unique().tolist()
+    tt = pd.to_datetime(raw_copy.get('tradeTime', pd.NaT), errors="coerce")
+    ed = pd.to_datetime(raw_copy.get('expirationDate', pd.NaT), errors="coerce")
+
+    closes = preload_prices_with_cache(syms, tt, ed, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
     labeled = build_dataset(raw_copy, max_rows=0, preload_closes=closes)
     # Keep only rows that could be labeled (win not NaN)
     labeled = labeled[~labeled["win"].isna()].copy()
-    out_dir = getenv("OUTPUT_DIR", "./output")
+    out_dir = getenv("COMMON_OUTPUT_DIR", "./output")
     labeled.to_csv(os.path.join(out_dir, labeled_csv), index=False)
 
 
 def main():
-    out_dir = getenv("OUT_DIR", "output")
-    input_csv = getenv("MACRO_FEATURE_CSV", "trades_with_gex_macro.csv")
+    out_dir = getenv("COMMON_OUT_DIR", "output")
+    input_csv = getenv("COMMON_MACRO_FEATURE_CSV", "trades_with_gex_macro.csv")
     input_csv = f"{out_dir}/{input_csv}"
     # filter rows with missing GEX if specified. Default: keep all rows
-    if getenv("FILTER_GEX", "0").strip() in {"1","true","yes","y","on"}:
+    if getenv("GEX_FILTER", "0").strip() in {"1","true","yes","y","on"}:
         input_csv = input_csv.replace(".csv", "_gexonly.csv")
     df = pd.read_csv(input_csv, index_col="row_id")
 

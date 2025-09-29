@@ -3,11 +3,10 @@ import pandas as pd
 from datetime import datetime
 import os
 from a00build_basic_dataset import ensure_cache_dir
-from service.data_prepare import _save_cached_price_data, _load_cached_price_data
 from service.utils import get_symbols_last_few_days, download_prices_batched
 
 
-COMMON_START_DATE = "2025-04-11"
+COMMON_START_DATE = "2025-04-01" # 2025-04-25  minus 24 days
 
 def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date=None, check_date = None):
     """
@@ -15,6 +14,7 @@ def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date
     load from cache if available, batch-download missing ones, and save to cache.
     Returns dict: symbol -> DataFrame with OHLCV data
     """
+    from service.data_prepare import _save_cached_price_data, _load_cached_price_data
     cache_dir = ensure_cache_dir(out_dir)
     # Determine symbols and window
     #syms = raw_df['baseSymbol'].dropna().astype(str).str.upper().unique().tolist()
@@ -50,7 +50,8 @@ def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date
             missing.append(s)
     if missing:
         print(f"[INFO] Downloading {len(missing)} symbols in batches (size={batch_size})...")
-        fetched = download_prices_batched(missing, start_dt, end_dt, batch_size=batch_size, threads=True)
+        st = pd.to_datetime(COMMON_START_DATE)
+        fetched = download_prices_batched(missing, st, end_dt, batch_size=batch_size, threads=True)
         for s, price_df in fetched.items():
             prices[s] = price_df
             _save_cached_price_data(cache_dir, s, price_df)

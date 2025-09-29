@@ -10,8 +10,8 @@ common_configs:
   # Data after Aug 10
   aug_10: &aug_10_config
     data_dir: "option/put/unprocessed2"
-    data_basic_csv: "trades_raw_t1.csv"
-    macro_feature_csv: "trades_with_gex_macro_t2.csv"
+    data_basic_csv: "trades_raw_t2.csv"
+    macro_feature_csv: "trades_with_gex_macro_t2b.csv"
     output_csv: "labeled_trades_t2.csv"
 
   # Data after Sep 5
@@ -26,6 +26,9 @@ common:
   output_dir: "output"
   # Active configuration - change this reference to switch entire config group
   <<: *original_config  # Change to *aug_10_config or *sep_5_config as needed
+  #<<: *aug_10_config #or *sep_5_config as needed
+process_on_fly: 0
+write_sweep: 1
 
 # Data Directory Configuration
 data:
@@ -83,8 +86,15 @@ winner:
   # Required
   input: "output/labeled_trades_enriched.csv"
   # no earnings(ne), stratified, with weights(w), using epsilon=0.02(ep)
-  output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm"
+  train_epsilon: 0.02
+  #output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm"
+  # alternative, traning plus test1
+  #output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts"
+  # alternative2, traning plus test2
+  output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts_minus"
   # output_dir: "output/winner_train/v6_oof_ne_straied_w_catboost"
+  early_stopping_rounds: 100
+  valid_fraction: 0.1
 
   # Now only base name, will be combined with the model type (lgbm, rf, catboost)
   model_name: "winner_classifier_v7"
@@ -123,8 +133,8 @@ winner:
   time_series: 1
 
 # Winner Scoring Configuration
-winner_scoring:
-  score_input: "output/labeled_trades_tr2.csv"
+winnerscore:
+  score_input: "output/labeled_trades_tr3.csv"
   # score_input: "output/labeled_trades_normal.csv"
   # score_input: "output/labeled_trades_t1.csv"
   # score_input: "output/labeled_trades_tr3.csv"
@@ -136,7 +146,9 @@ winner_scoring:
   # model_in: "output/winner_train/external/winner_classifier_v6_oof_ne_w_rfctr_lgbm.pkl"
   # model_in: "output/winner_train/v6_oof_ne_ts_w_lgbm_gex/winner_classifier_v6_oof_ne_w_lgbm.pkl"
 
-  score_out_folder: "output/winner_score/v7_lgbm_score_t2"
+  #score_out_folder: "output/winner_score/v7_lgbm_score_t2"
+  #score_out_folder: "output/winner_score/v7_lgbm_tr_ts1_score_t3"
+  score_out_folder: "output/winner_score/v7_lgbm_tr_ts1_minus_score_t3"
   # score_out_folder: "output/winner_score/extern_rfctr_lgbm"
   # the data removed the future not expired trades
   # score_out_folder: "output/winner_score/rfctr_lgbm_fix"
