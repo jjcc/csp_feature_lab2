@@ -4,7 +4,6 @@ from os import getenv
 import numpy as np
 import pandas as pd
 from service.data_prepare import derive_capital, lookup_close_on_or_before, preload_prices_with_cache
-from service.preprocess import load_csp_files 
 
 from service.env_config import getenv
 
@@ -112,7 +111,8 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 def label_csv_file(raw):
     #cut_off_date = "2025-08-08"
     #cut_off_date = "2025-09-06"
-    cut_off_date = "2025-09-11" # the 3rd folder in "unprocessed3"
+    #cut_off_date = "2025-09-11" # the 3rd folder in "unprocessed3"
+    cut_off_date = "2025-09-29" # the 3rd folder in "unprocessed3"
     cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else pd.Timestamp.now()
     batch_size = int(getenv("DATA_BATCH_SIZE", "30"))
     #processed_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
@@ -156,7 +156,7 @@ def label_csv_file(raw):
 
 
 def main():
-    out_dir = getenv("COMMON_OUT_DIR", "output")
+    out_dir = getenv("COMMON_OUTPUT_DIR", "output")
     input_csv = getenv("COMMON_MACRO_FEATURE_CSV", "trades_with_gex_macro.csv")
     input_csv = f"{out_dir}/{input_csv}"
     # filter rows with missing GEX if specified. Default: keep all rows

@@ -67,6 +67,7 @@ def load_csp_files(data_dir: str, pattern: str, target_time="11:00", enforce_dai
     for p in paths:
         try:
             df = pd.read_csv(p)
+            df = df.drop(columns=["baseSymbolType","Unnamed: 0", "symbolType"], errors='ignore')
             base_file = Path(p).name
             df["__source_file"] = base_file
             frames.append(df)
@@ -218,7 +219,7 @@ def pick_closest_file(files, target_minutes: int):
     return best
 
 
-def add_dte_and_normalized_returns(df):
+def add_dte_and_normalized_returns(df, non_lableled=False):
     """
     Add DTE and normalized returns to the dataframe.
     Originally from train_tail_with_gex.py
@@ -232,6 +233,8 @@ def add_dte_and_normalized_returns(df):
     #d["daysToExpiration"] = ((d["expirationDate"].dt.floor("D") - d["tradeTime"].dt.floor("D"))
     #                          .dt.days.clip(lower=1))
     #d["log1p_DTE"] = np.log1p(d["daysToExpiration"].astype(float))
+    if non_lableled: # no callculation to returns
+        return d
 
     d["return_per_day"] = d["return_pct"] / d["daysToExpiration"].replace(0, 1)
     #d["return_ann"] = ((1.0 + d["return_pct"] / 100.0) ** (365.0 / d["daysToExpiration"]) - 1.0) * 100.0

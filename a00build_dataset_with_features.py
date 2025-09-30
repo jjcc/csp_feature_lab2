@@ -52,7 +52,7 @@ def main():
     # Step 1: Load raw data from multiple files
     raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=True)
     #raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=False)
-    raw = raw.drop(columns=["baseSymbolType","Unnamed: 0", "symbolType"], errors='ignore')
+
     # rename index to "row_id" for tracking
     raw = raw.reset_index().rename(columns={"index": "row_id"})
     # raw is not written but used directly below
