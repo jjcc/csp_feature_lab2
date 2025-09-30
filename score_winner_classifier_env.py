@@ -125,12 +125,15 @@ def pick_threshold_from_coverage(proba: np.ndarray, coverage: float) -> float:
 def load_and_preprocess_data(config: ScoringConfig) -> pd.DataFrame:
     """Load and preprocess input data."""
     df = pd.read_csv(config.csv_in)
+    non_labelled = False # assume we have labels
+    if "label" not in config.csv_in:
+        non_labelled = True
 
     if config.gex_filter and "gex_missing" in df.columns:
         df = df[df["gex_missing"] == 0].copy()
         print(f"Filtered rows with missing GEX, remaining {len(df)} rows.")
 
-    df = add_dte_and_normalized_returns(df)
+    df = add_dte_and_normalized_returns(df, non_labelled)
 
     if "tradeTime" in df.columns:
         df["tradeTime"] = pd.to_datetime(df["tradeTime"], errors="coerce")

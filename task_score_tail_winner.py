@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from service.utils import prep_tail_training_df
 from service.winner_scoring import load_winner_model, score_winner_data, apply_winner_threshold, cleanup_columns_for_production
 from service.production_data import add_features, parse_target_time
+from service.env_config import getenv
 
 load_dotenv()
 
@@ -20,10 +21,11 @@ TAIL_MODEL_IN = "output/tails_train/v6b_ne/tail_model_gex_v6b_ne_cut05.pkl"
 TAIL_KEEP_PROBA_COL = "tail_proba"
 #WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited_w_lgbm/winner_classifier_v6_oof_ne_w_lgbm.pkl"
 #WINNER_MODEL_IN = "output/winner_train/external/winner_classifier_v6_oof_ne_w_lgbm.pkl"
-WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_ts_w_lgbm_rfctr/winner_classifier_v6_oof_ne_w_lgbm.pkl"
+#WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_ts_w_lgbm_rfctr/winner_classifier_v6_oof_ne_w_lgbm.pkl"
+WINNER_MODEL_IN = "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts/winner_classifier_v7_lgbm.pkl"
 WINNER_PROBA_COL = "winner_proba"
 
-PX_BASE_DIR = os.getenv("PX_BASE_DIR", "").strip()  
+PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip()  
 
 
 
@@ -60,7 +62,7 @@ def main(Test=False):
     option_file = latest_file_with_path
     if Test:
         #option_file = "option/put/unprocessed/coveredPut_2025-08-08_11_00.csv"
-        option_file = "option/put/coveredPut_2025-09-18_11_00.csv"
+        option_file = "option/put/coveredPut_2025-09-29_15_00.csv"
         latest_file_time = option_file.split("_")[-2:]
         latest_file_time = ":".join(latest_file_time).replace(".csv", "")
         target_t = parse_target_time(latest_file_time)
@@ -78,6 +80,8 @@ def main(Test=False):
         out_path = f"{out_dir}/scored_tail_winner_lgbm_{target_date}_{time_str}_test2.csv"
 
     df_o = add_features(target_minutes, option_file, target_date)
+    # end of add macro features
+    # get next earning and previous earning
 
     # tail scoring
     #pack_tl = joblib.load(TAIL_MODEL_IN)
@@ -117,5 +121,5 @@ def main(Test=False):
 
 
 if __name__ == '__main__':
-    #main(Test=True)
-    main()
+    main(Test=True)
+    #main()
