@@ -154,7 +154,7 @@ def _load_vix(vix_csv, start_date, end_date,force_download=False):
         close_col = "VIX" if "VIX" in vdf.columns else "Close"
         vdf[date_col] = pd.to_datetime(vdf[date_col], errors="coerce")
         max_date = vdf[date_col].max()
-        if pd.isna(max_date) or max_date >= pd.to_datetime(end_date) and not force_download:
+        if pd.isna(max_date) or max_date >= (pd.to_datetime(end_date) - pd.Timedelta(days=1)) and not force_download:
             vdf = vdf.dropna(subset=[date_col]).set_index(date_col).sort_index()
             return vdf.loc[start_date:end_date, close_col].rename("VIX").astype(float)
     #if use_yf:
@@ -342,7 +342,7 @@ def add_macro_features(df, vix_df_or_csv_path, px_base_dir):
         s_px = _load_symbol_prices(sym, px_base_dir, st, end_date)
         if s_px is not None and not s_px.empty:
             s_px = s_px.sort_index()
-            if  st < s_px.index.min() or end_date > s_px.index.max():
+            if  st < s_px.index.min() or (end_date - pd.Timedelta(days=1)) > s_px.index.max():
                 to_reload.append(sym)
             else:
                 loaded[sym] = s_px
