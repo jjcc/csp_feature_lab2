@@ -11,7 +11,7 @@ import pandas as pd
 from datetime import time
 from pathlib import Path
 from service.data_prepare import add_macro_features
-from service.preprocess import  merge_gex
+from service.preprocess import  load_csp_files, merge_gex
 from service.env_config import getenv
 
 
@@ -25,11 +25,12 @@ def parse_target_time(s: str) -> time:
 
 
 def main():
+    data_dir = getenv("COMMON_DATA_DIR", "")
+    glob_pat = getenv("DATA_GLOB", "coveredPut_*.csv")
+    target_time = getenv("DATA_TARGET_TIME", "11:00")
 
     # inputs
     out_dir = getenv("COMMON_OUTPUT_DIR", "output")
-    csv_input = getenv("COMMON_DATA_BASIC_CSV")
-    csv_path = f"{out_dir}/{csv_input}"
 
     # GEX source
     base_dir = getenv("GEX_BASE_DIR")
@@ -48,10 +49,20 @@ def main():
     target_t = parse_target_time(target_time_str)
     target_minutes = target_t.hour * 60 + target_t.minute
 
-    trades = pd.read_csv(csv_path)
+    # Step 1: Load raw data from multiple files
+    raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=True)
+    #raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=False)
+    raw = raw.drop(columns=["baseSymbolType","Unnamed: 0", "symbolType"], errors='ignore')
+    # rename index to "row_id" for tracking
+    raw = raw.reset_index().rename(columns={"index": "row_id"})
+    # raw is not written but used directly below
+    #trades = pd.read_csv(csv_path)
+    trades = raw
+
+    # Step 2: Merge GEX features
     gex_merged = merge_gex(trades, base_dir, target_minutes)
 
-    # Use shared macro features function
+    # Step 3: Add macro features , use shared macro features function
     d = add_macro_features(gex_merged, VIX_CSV, PX_BASE_DIR)
     # filter rows with missing GEX if specified. Default: keep all rows
     if getenv("GEX_FILTER", "0").strip() in {"1","true","yes","y","on"}:
