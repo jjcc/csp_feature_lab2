@@ -2,11 +2,11 @@
 import pandas as pd
 from datetime import datetime
 import os
-from a00build_basic_dataset import ensure_cache_dir
+from a00build_dataset_with_features import ensure_cache_dir
 from service.utils import get_symbols_last_few_days, download_prices_batched
+from service.data_prepare import COMMON_START_DATE, _load_cached_price_data, _save_cached_price_data
 
 
-COMMON_START_DATE = "2025-04-01" # 2025-04-25  minus 24 days
 
 def preload_prices_with_cache_by_time(syms, out_dir, batch_size=30, cut_off_date=None, check_date = None):
     """

@@ -14,6 +14,10 @@ from service.data_prepare import add_macro_features
 from service.preprocess import  load_csp_files, merge_gex
 from service.env_config import getenv
 
+def ensure_cache_dir(out_dir):
+    pc = os.path.join(out_dir, "price_cache")
+    os.makedirs(pc, exist_ok=True)
+    return pc
 
 def parse_target_time(s: str) -> time:
     try:
