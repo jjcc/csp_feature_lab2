@@ -105,7 +105,7 @@ def main(Test=False):
     out2 = apply_winner_threshold(out2, WINNER_PROBA_COL, "is_winner_pred", thresh)
 
     # cleanup and filters using shared function
-    out2 = cleanup_columns_for_production(out2)
+    #out2 = cleanup_columns_for_production(out2)
     #out2["verdict"] = (out2["is_winner_pred"] == 1) & (out2["is_tail_pred"] == 0)
     #out2 = out2[out2["is_winner_pred"] == 1]
     #out2 = out2[out2["is_tail_pred"] == 0]
@@ -121,5 +121,5 @@ def main(Test=False):
 
 
 if __name__ == '__main__':
-    main(Test=True)
-    #main()
+    #main(Test=True)
+    main()

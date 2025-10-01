@@ -18,15 +18,23 @@ common_configs:
   sep_5: &sep_5_config
     data_dir: "option/put/unprocessed3"
     data_basic_csv: "trades_raw_t3.csv"
-    macro_feature_csv: "trades_with_gex_macro_t3.csv"
+    macro_feature_csv: "trades_with_gex_macro_ts3b.csv"
     output_csv: "labeled_trades_t3.csv"
+
+  # Data for small test
+  sep_29: &sep_29_config
+    data_dir: "option/put/unprocessed_test"
+    macro_feature_csv: "trades_with_gex_macro_ts29b.csv"
+    output_csv: "labeled_trades_t29b.csv"
 
 # Common values used across sections
 common:
   output_dir: "output"
   # Active configuration - change this reference to switch entire config group
-  <<: *original_config  # Change to *aug_10_config or *sep_5_config as needed
-  #<<: *aug_10_config #or *sep_5_config as needed
+  #<<: *original_config  # Change to *aug_10_config or *sep_5_config as needed
+  #<<: *aug_10_config #or 
+  #<<: *sep_5_config
+  <<: *sep_29_config # for small test
 process_on_fly: 0
 write_sweep: 1
 
@@ -89,9 +97,9 @@ winner:
   train_epsilon: 0.02
   #output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm"
   # alternative, traning plus test1
-  #output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts"
+  output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts"
   # alternative2, traning plus test2
-  output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts_minus"
+  #output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts_minus"
   # output_dir: "output/winner_train/v6_oof_ne_straied_w_catboost"
   early_stopping_rounds: 100
   valid_fraction: 0.1
@@ -134,7 +142,8 @@ winner:
 
 # Winner Scoring Configuration
 winnerscore:
-  score_input: "output/labeled_trades_tr3.csv"
+  #score_input: "output/labeled_trades_tr3.csv"
+  score_input: "output/trades_with_gex_macro_ts29b.csv"
   # score_input: "output/labeled_trades_normal.csv"
   # score_input: "output/labeled_trades_t1.csv"
   # score_input: "output/labeled_trades_tr3.csv"
@@ -148,7 +157,7 @@ winnerscore:
 
   #score_out_folder: "output/winner_score/v7_lgbm_score_t2"
   #score_out_folder: "output/winner_score/v7_lgbm_tr_ts1_score_t3"
-  score_out_folder: "output/winner_score/v7_lgbm_tr_ts1_minus_score_t3"
+  score_out_folder: "output/winner_score/v7_lgbm_tr_ts1_minus_score_t29b2"
   # score_out_folder: "output/winner_score/extern_rfctr_lgbm"
   # the data removed the future not expired trades
   # score_out_folder: "output/winner_score/rfctr_lgbm_fix"
