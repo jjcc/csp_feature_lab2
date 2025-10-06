@@ -28,7 +28,6 @@ class TestOptionMetrics(unittest.TestCase):
         df_o = pd.read_csv(a_file)
         df = df_o[["underlyingLastPrice", "strike", "bidPrice", "daysToExpiration"]].copy()
 
-        # If your file *doesn't* contain impliedVolatility (only IV Rank), skip probabilities:
         out = compute_option_metrics(df, iv_col="impliedVolatility", add_probabilities=False)
 
         # Inspect the enriched DataFrame

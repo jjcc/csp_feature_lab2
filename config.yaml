@@ -9,14 +9,14 @@ common_configs:
 
   # Data after Aug 10
   aug_10: &aug_10_config
-    data_dir: "option/put/unprocessed2"
+    data_dir: "option/put/put25_0808-0905"
     data_basic_csv: "trades_raw_t2.csv"
     macro_feature_csv: "trades_with_gex_macro_t2b.csv"
     output_csv: "labeled_trades_t2.csv"
 
-  # Data after Sep 5
-  sep_5: &sep_5_config
-    data_dir: "option/put/unprocessed3"
+  # Data after Sep 8
+  sep_8: &sep_8_config
+    data_dir: "option/put/put25_0808-0905"
     data_basic_csv: "trades_raw_t3.csv"
     macro_feature_csv: "trades_with_gex_macro_ts3b.csv"
     output_csv: "labeled_trades_t3.csv"

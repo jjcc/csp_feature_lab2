@@ -22,7 +22,7 @@ class TestLoadVix(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.start_date = "2025-04-01"
 
-        self.end_date = "2025-09-06"
+        self.end_date = "2025-10-03"
 
     def tearDown(self):
         import shutil
