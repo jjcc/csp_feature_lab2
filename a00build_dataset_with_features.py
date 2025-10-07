@@ -61,10 +61,22 @@ def main():
     raw = raw.reset_index().rename(columns={"index": "row_id"})
     # raw is not written but used directly below
     #trades = pd.read_csv(csv_path)
+
+    raw_csv = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_temp.csv")
     trades = raw
 
+    trades.to_csv(raw_csv, index=False)  # save a copy of raw data
+
+    SKIP_GEX = False # 
     # Step 2: Merge GEX features
-    gex_merged = merge_gex(trades, base_dir, target_minutes)
+    gex_csv = raw_csv.replace(".csv", "_gex.csv")
+    if not SKIP_GEX:
+        gex_merged = merge_gex(trades, base_dir, target_minutes)
+        # save intermediate result with GEX
+        gex_merged.to_csv(gex_csv, index=False)
+    else:
+        print("Skipping GEX merge, loading existing file:", gex_csv)
+        gex_merged = pd.read_csv(gex_csv)
 
     # Step 3: Add macro features , use shared macro features function
     d = add_macro_features(gex_merged, VIX_CSV, PX_BASE_DIR)

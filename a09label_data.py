@@ -1,6 +1,5 @@
 
 import os
-from os import getenv
 import numpy as np
 import pandas as pd
 from service.data_prepare import derive_capital, lookup_close_on_or_before, preload_prices_with_cache
