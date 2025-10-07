@@ -65,6 +65,7 @@ def main():
     raw_csv = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_temp.csv")
     trades = raw
 
+    raw_csv = os.path.join(out_dir, os.path.basename(raw_csv))
     trades.to_csv(raw_csv, index=False)  # save a copy of raw data
 
     SKIP_GEX = False # 
@@ -73,6 +74,7 @@ def main():
     if not SKIP_GEX:
         gex_merged = merge_gex(trades, base_dir, target_minutes)
         # save intermediate result with GEX
+        gex_csv = os.path.join(out_dir, os.path.basename(gex_csv))
         gex_merged.to_csv(gex_csv, index=False)
     else:
         print("Skipping GEX merge, loading existing file:", gex_csv)
