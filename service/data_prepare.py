@@ -2,6 +2,7 @@
 import os
 import numpy as np
 import pandas as pd
+from service.stock_data_manager2 import GroupedStockUpdater
 from service.utils import download_prices_batched 
 import numpy as np
 from pathlib import Path
@@ -58,6 +59,8 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
     end_dt = pd.to_datetime(max([d for d in ed.dropna()]) + pd.Timedelta(days=1))
     if cut_off_date is  None:
         cut_off_date = pd.Timestamp.now()
+        if cut_off_date.hour < 17:
+            cut_off_date = cut_off_date - pd.Timedelta(days=1)
     if end_dt > cut_off_date:
         end_dt = cut_off_date
         end_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -71,19 +74,26 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
     missing = []
     for s in syms:
         price_df, _ = _load_cached_price_data(cache_dir, s)
+        if s == "WOLF":
+            prices[s] = price_df
+            continue
         if price_df is not None and (price_df.index.min() <= start_dt) and (price_df.index.max() >= end_dt):
             prices[s] = price_df
         else:
             missing.append(s)
     if missing:
         print(f"[INFO] Downloading {len(missing)} symbols in batches (size={batch_size})...")
-        fetched_start = start_dt - pd.Timedelta(days=10)
-        st = pd.to_datetime(COMMON_START_DATE)
-        fetched_end = pd.Timestamp.now()
-        fetched = download_prices_batched(missing, st, fetched_end, batch_size=batch_size, threads=True)
-        for s, price_df in fetched.items():
-            prices[s] = price_df
-            _save_cached_price_data(cache_dir, s, price_df)
+        log_file = "data/price_cache_dates.csv"
+
+        updater = GroupedStockUpdater(data_dir=cache_dir, log_file=log_file)
+        updater.update_batch(missing)
+        #fetched_start = start_dt - pd.Timedelta(days=10)
+        #st = pd.to_datetime(COMMON_START_DATE)
+        #fetched_end = pd.Timestamp.now()
+        #fetched = download_prices_batched(missing, st, fetched_end, batch_size=batch_size, threads=True)
+        #for s, price_df in fetched.items():
+        #    prices[s] = price_df
+        #    _save_cached_price_data(cache_dir, s, price_df)
     return prices
 
 def lookup_close_on_or_before(price_df: pd.DataFrame, target_dt: pd.Timestamp, max_days_back: int = 3) -> float:
@@ -187,8 +197,12 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
             # Check if index is already datetime, otherwise look for Date/date columns
             if pd.api.types.is_datetime64_any_dtype(df.index):
                 df = df.sort_index()
+                if symbol == "WOLF": # special case
+                    close_col = "Close" if "Close" in df.columns else "close"
+                    return df.loc[start_date:, close_col].rename("Close").astype(float)
                 # check if min and max date cover the range
-                if  start_date >= df.index.min() and end_date - pd.Timedelta(days=1) <= df.index.max():
+                #if  start_date >= df.index.min() and end_date - pd.Timedelta(days=1) <= df.index.max():
+                if len(df) > 0 :
                     close_col = "Close" if "Close" in df.columns else "close"
                     return df.loc[start_date:end_date, close_col].rename("Close").astype(float)
                 else:
@@ -336,7 +350,7 @@ def add_macro_features(df, vix_df_or_csv_path, px_base_dir):
     symbol_list = df['baseSymbol'].unique()
     to_reload = []
     loaded = {}
-    st = start_date - pd.Timedelta(days=60) # add a time buffer
+    st = start_date - pd.Timedelta(days=24) # add a time buffer
     ed = pd.Timestamp.now() 
     for sym in symbol_list:
         s_px = _load_symbol_prices(sym, px_base_dir, st, end_date)

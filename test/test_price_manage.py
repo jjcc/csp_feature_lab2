@@ -101,5 +101,28 @@ class TestPriceData(unittest.TestCase):
         print(log_df)
         self.assertTrue(not log_df.empty)
 
+    def test_fake_wolf_parquet(self):
+        print("Testing reading WOLF parquet file")
+        wolf_file = "data/wolf/WOLF.csv"
+        df = pd.read_csv(wolf_file, index_col="Date")
+        real_wolf_parque = "output/price_cache/WOLF.parquet"
+        df_parquet = pd.read_parquet(real_wolf_parque)
+        print(df_parquet.head())
+
+        # make the df index the datetime type
+        df.index = pd.to_datetime(df.index)
+        # df rename the column "Vol." to "Volume"
+        df.rename(columns={"Vol.": "Volume"}, inplace=True)
+        # the volumne column convert to numeric, remove "M" instead of multiply by 1000000
+        df["Volume"] = pd.to_numeric(df["Volume"].str.replace("M", ""), errors='coerce')
+        df["Volume"] = df["Volume"] * 1000000
+        # sort the df by index
+        df.sort_index(inplace=True)
+        # cut the date to 2025-09-28
+        df = df.loc[:'2025-09-28']
+        df.to_parquet("data/wolf/WOLF.parquet")
+
+        print(df.head())
+
 if __name__ == '__main__':
     unittest.main()
