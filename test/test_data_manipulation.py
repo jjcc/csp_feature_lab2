@@ -12,7 +12,7 @@ class TestDataManipulation(unittest.TestCase):
         Merge original training dataset with the first test dataset
         '''
         file1 = "output/labeled_trades.csv"
-        file2 = "output/labeled_trades_tr2.csv"
+        file2 = "output/labeled_trades_t2.csv"
         df1 = pd.read_csv(file1)
         df2 = pd.read_csv(file2)
         df_merged = pd.concat([df1, df2]).drop_duplicates().reset_index(drop=True)
@@ -25,7 +25,7 @@ class TestDataManipulation(unittest.TestCase):
         Remove the last N rows from the original training dataset before merging, to keep the size the same
         '''
         file1 = "output/labeled_trades.csv"
-        file2 = "output/labeled_trades_tr2.csv"
+        file2 = "output/labeled_trades_t2.csv"
         df1 = pd.read_csv(file1)
         df2 = pd.read_csv(file2)
         length_test = len(df2)

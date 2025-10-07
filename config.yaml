@@ -2,7 +2,7 @@
 common_configs:
   # Original training data (before Aug 11)
   original: &original_config
-    data_dir: "option/put/unprocessed"
+    data_dir: "option_data/put/train"
     data_basic_csv: "trades_raw.csv"
     macro_feature_csv: "trades_with_gex_macro.csv"
     output_csv: "labeled_trades.csv"
