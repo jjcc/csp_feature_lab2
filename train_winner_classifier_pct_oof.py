@@ -376,11 +376,17 @@ def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
         # choose lowest threshold that achieves >= target precision
         for tgt in targets_precision:
             chosen_thr, chosen_m = None, None
+            # bottle neck: choose 1 in every 100
+            count = 0
             for thr in sorted(thresholds):
+                if count % 100 != 0:
+                    count += 1
+                    continue
                 pr, rc, f1, keep = metrics_at(thr)
                 if pr >= tgt:
                     chosen_thr, chosen_m = thr, (pr, rc, f1, keep)
                     break
+                count += 1
             if chosen_thr is None and len(thresholds):
                 thr = float(max(thresholds))
                 chosen_m = metrics_at(thr)
@@ -541,11 +547,15 @@ def main():
     cv_handler = CrossValidator(config, preprocessor)
 
     # Load and prepare data
-    #df = pd.read_csv(config.input_csv)
+    df = pd.read_csv(config.input_csv)
     # alternative
-    input_csv1 = "output/labeled_trades_tr_t1_merged.csv"
-    input_csv2 = "output/labeled_trades_tr_t2_merged_minus.csv"
-    df = pd.read_csv(input_csv1)
+    #input_csv1 = "output/labeled_trades_tr_t1_merged.csv"
+    #input_csv2 = "output/labeled_trades_tr_t1_merged_minus.csv"
+    input_csv3 = "output/labeled_trades_tr_A_B_merged.csv"
+
+    #df = pd.read_csv(input_csv1)
+    #df = pd.read_csv(input_csv2)
+    df = pd.read_csv(input_csv3)
 
     df, y, features, weights, has_time = preprocessor.prepare_data(df)
 
