@@ -8,6 +8,7 @@ import platform
 
 url_vix = "https://www.cboe.com/tradable_products/vix/"
 
+XPATH_VIX_NEW = '/html/body/main/div/div/section[1]/div/div[1]/div[2]/div[1]/h2'
 # Set up the Chrome driver automatically
 # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
@@ -18,9 +19,11 @@ def get_current_vix(url, driver):
     
     # Wait up to 10 seconds for the element to be present
         wait = WebDriverWait(driver, 10)
-        vix_element = wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="charts-tile"]/div/div/div[1]/div[1]/div[2]')))
+        #vix_element = wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="charts-tile"]/div/div/div[1]/div[1]/div[2]')))
+        vix_element = wait.until(EC.presence_of_element_located((By.XPATH, XPATH_VIX_NEW)))
     
         vix_value = vix_element.text.strip()
+        vix_value = vix_value.replace("$", "")
         print("Current VIX value:", vix_value)
     
     except Exception as e:
