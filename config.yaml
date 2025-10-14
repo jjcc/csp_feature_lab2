@@ -6,13 +6,16 @@ common_configs:
     data_basic_csv: "trades_raw.csv"
     macro_feature_csv: "trades_with_gex_macro.csv"
     output_csv: "labeled_trades.csv"
+    # min expiry date plus 1 day in this set is 2024-08-11
+    cutoff_date: "2025-08-16"
 
   # Data after Aug 11
   aug_11: &aug_11_config
     data_dir: "option/put/put25_0810-0905"
-    data_basic_csv: "trades_raw_a_0811.csv"
+    data_basic_csv: "trades_raw_A_0811.csv"
     macro_feature_csv: "trades_with_gex_macro_a_0811fix.csv"
     output_csv: "labeled_trades_a_0811fix.csv"
+    cutoff_date: "2025-09-13"
 
   # Data after Sep 8, set B
   sep_8: &sep_8_config
@@ -20,11 +23,12 @@ common_configs:
     data_basic_csv: "trades_raw_B_0908.csv"
     macro_feature_csv: "trades_with_gex_macro_B_0908.csv"
     output_csv: "labeled_trades_B_0908.csv"
+    cutoff_date: "2025-09-20"
 
   # Data after Sep 12, set C
   sep_12: &sep_12_config
     data_dir: "option/put/put25_0912-0926"
-    data_basic_csv: "trades_raw_c_0912.csv"
+    data_basic_csv: "trades_raw_C_0912.csv"
     macro_feature_csv: "trades_with_gex_macro_ts_c_0912.csv"
     output_csv: "labeled_trades_c_0912.csv"
 

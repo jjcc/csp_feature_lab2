@@ -78,5 +78,19 @@ class TestDataManipulation(unittest.TestCase):
         df_fixed = df1[df1['tradeTime'] != pd.Timestamp("2025-08-08")]
         print(f"Fixed DataFrame has {len(df_fixed)} rows.")
         df_fixed.to_csv(file1fix, index=False)
+
+
+    def test_cutoff_date(self):
+        from service.env_config import getenv
+        specifics = ["aug_11", "sep_8", "sep_12"] #  "sep_29" is test
+        print("\nConfiguration cutoff dates:")
+        for spec in specifics:
+            basic_csv = getenv(f"COMMON_CONFIGS_{spec.upper()}_DATA_BASIC_CSV", "")
+            #print(f"COMMON_CONFIGS_{spec.upper()}_DATA_BASIC_CSV: {basic_csv}")
+            df = pd.read_csv(f"output/{basic_csv}")
+            df['expirationDate'] = pd.to_datetime(df['expirationDate'], errors='coerce')
+            min_date = df['expirationDate'].min()
+            print(f"  Min expirationDate in {basic_csv}: {min_date}")
+        #self.assertEqual(cutoff_date, "2025-08-11")
 if __name__ == '__main__':
     unittest.main()
