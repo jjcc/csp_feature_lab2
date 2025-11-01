@@ -1,4 +1,9 @@
+import glob
+import os
+import re
+import shutil
 import unittest
+from dotenv import load_dotenv
 import joblib
 import pandas as pd
 from service.utils import prep_tail_training_df, fill_features_with_training_medians
@@ -42,6 +47,47 @@ class TestVerification(unittest.TestCase):
         #output_file = "output/labeled_trades_with_gex_normal_dropped.csv"
         output_file = file
         df.to_csv(output_file, index=False)
+
+    def test_copy_monday_results(self):
+        """
+        Copy only monday results to special folder. For a simple afterwards verification.
+        """
+        from dotenv import load_dotenv
+        load_dotenv(".env.test")
+        folder_check = "prod/output"
+        files = glob.glob(os.path.join(folder_check, "*.csv"))
+        print(f"Found {len(files)} files")
+        monday_files = []
+        for file in files:
+            file_name = file.split("/")[-1]
+            date_segment, weekday = self.get_date_seg(file_name)
+            if weekday == "Monday":
+                #target_folder = os.path.join(folder_check, "monday_only")
+                #os.makedirs(target_folder, exist_ok=True)
+                #target_file = os.path.join(target_folder, file_name)
+                #print(f"Copying {file} to {target_file}")
+                #shutil.copy(file, target_file)
+                monday_files.append(file_name)
+        
+        for mf in monday_files:
+            target_folder = os.path.join(folder_check, "monday_only")
+            os.makedirs(target_folder, exist_ok=True)
+            target_file = os.path.join(target_folder, mf)
+            mf = os.path.join(folder_check, mf)
+            shutil.copy(mf, target_file)
+            print(f"Copying {mf} to {target_file}")
+
+
+    def get_date_seg(self, file_name):
+        date_segment = re.search(r'[\w|_]+(\d{4}-\d{2}-\d{2})_\d{2}_\d{2}\.csv', file_name)
+        if date_segment:
+            date_segment = date_segment.group(1)
+        if not date_segment:
+            return None, None
+        # get the weekday of that date
+        weekday = pd.to_datetime(date_segment).day_name()
+        return date_segment, weekday
+
 
 if __name__ == '__main__':
     unittest.main()
