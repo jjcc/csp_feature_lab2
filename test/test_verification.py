@@ -5,7 +5,8 @@ import shutil
 import unittest
 import numpy as np
 import pandas as pd
-from service.data_prepare import lookup_close_on_or_before, preload_prices_with_cache
+from dotenv import load_dotenv
+from service.data_prepare import derive_capital, lookup_close_on_or_before, preload_prices_with_cache
 
 
 
@@ -31,6 +32,16 @@ def expiry_close_from_cache(r, preload_closes):
     # Only allow prices within 3 trading days of expiration
     return lookup_close_on_or_before(price_df, expiry_date, max_days_back=3) if price_df is not None else np.nan
 
+def safe_float(x):
+    try:
+        return float(x)
+    except Exception:
+        return np.nan
+
+def entry_credit(r,  min_abs=0.01):
+    bidPrice = safe_float(r["bidPrice"])
+    fill = bidPrice - min_abs
+    return fill*100.0
 
 class TestVerification(unittest.TestCase):
 
@@ -74,7 +85,6 @@ class TestVerification(unittest.TestCase):
         """
         Copy only monday results to special folder. For a simple afterwards verification.
         """
-        from dotenv import load_dotenv
         load_dotenv(".env.test")
         folder_check = "prod/output"
         files = glob.glob(os.path.join(folder_check, "*.csv"))
@@ -116,7 +126,6 @@ class TestVerification(unittest.TestCase):
         Fill expiry_close column for all files in monday_only folder.
         The result file will be saved in labeled folder.
         """
-        from dotenv import load_dotenv
         load_dotenv(".env.test")
         monday_only_dir = os.getenv("MONDAY_ONLY_DIR", "prod/output/monday_only")
         files = glob.glob(os.path.join(monday_only_dir, "*.csv"))
@@ -125,7 +134,53 @@ class TestVerification(unittest.TestCase):
             print(f"Processing expiry_close for {file}")
             self.fill_expiry_close(file)
 
-        
+    def test_calculate_pnl(self):
+        """
+        Calculate entry_credit, exit_intrinsic, total_pnl, return_pct columns for all files in labeled folder.
+        The result file will overwrite the original file.
+        """
+        load_dotenv(".env.test")
+        labeled_output_dir = os.getenv("LABELED_OUTPUT_DIR", "prod/output/labeled")
+
+
+
+        files = glob.glob(os.path.join(labeled_output_dir, "*.csv"))
+        print(f"Found {len(files)} files to process PnL calculation")
+
+        for file in files:
+            print(f"Processing PnL calculation for {file}")
+            df = pd.read_csv(file)
+
+            # Entry credit for puts
+            df["entry_credit"] = df.apply(entry_credit, axis=1)
+
+            # fill strike if not exist
+            if 'strike' not in df.columns:
+                df['strike'] = df['symbol'].apply(
+                    #lambda s: str(s).upper()[str(s).upper().find('|')+10:str(s).upper().find('|')+15]
+                    lambda s: str(s).split('|')[2][:-1]
+                ).apply(lambda x: safe_float(x))
+
+
+            # Exit (expiry intrinsic) for puts
+            def exit_intrinsic(r):
+                strike = safe_float(r["strike"]) 
+                expiry_close = safe_float(r["expiry_close"])
+                if not np.isfinite(strike) or not np.isfinite(expiry_close):
+                    return np.nan
+                return max(0.0, strike - expiry_close)*100.0
+
+            df["exit_intrinsic"] = df.apply(exit_intrinsic, axis=1)
+
+            # Capital reserved for CSP
+            df["capital"] = derive_capital(df)
+
+            # Total PnL and return
+            df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
+            df["return_pct"] = np.where(df["capital"]>0, df["total_pnl"]/df["capital"]*100.0, np.nan)
+            df["win_verdict"] = np.where(df["total_pnl"]>0, 1, 0)
+
+            df.to_csv(file, index=False)    
 
 
     def fill_expiry_close(self, file, filter_weekly=True):
