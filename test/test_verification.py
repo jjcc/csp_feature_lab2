@@ -183,6 +183,37 @@ class TestVerification(unittest.TestCase):
             df.to_csv(file, index=False)    
 
 
+    def test_collect_stats(self):
+        """
+        Collect basic stats from all labeled files.
+        """
+        load_dotenv(".env.test")
+        labeled_output_dir = os.getenv("LABELED_OUTPUT_DIR", "prod/output/labeled")
+
+        files = glob.glob(os.path.join(labeled_output_dir, "score*.csv"))
+        print(f"Found {len(files)} files to collect stats")
+
+        stats = []
+        for file in files:
+            df = pd.read_csv(file)
+
+            df = df[df["winner_proba"] > 0.95]
+            predicted_winning_trades = len(df)
+            winning_trades = df['win_verdict'].sum() 
+            percent = (winning_trades / predicted_winning_trades * 100.0) if predicted_winning_trades >0 else 0.0
+            stats.append({
+                'file': file.split('/')[-1],
+                'predicted_winning_trades': predicted_winning_trades,
+                'winning_trades': winning_trades,
+                'winning_percentage': percent
+            })
+        
+        stats_df = pd.DataFrame(stats)
+        stats_file = os.path.join(labeled_output_dir, "labeled_files_stats.csv")
+        stats_df.to_csv(stats_file, index=False)
+        print(f"Stats saved to {stats_file}")
+
+
     def fill_expiry_close(self, file, filter_weekly=True):
         """
         Function to fill expiry_close column for a given file, and save to labeled folder.
