@@ -12,7 +12,7 @@ from datetime import time
 from pathlib import Path
 from service.data_prepare import add_macro_features
 from service.preprocess import  load_csp_files, merge_gex
-from service.env_config import getenv
+from service.env_config import get_derived_file, getenv
 
 def ensure_cache_dir(out_dir):
     pc = os.path.join(out_dir, "price_cache")
@@ -38,7 +38,7 @@ def main():
 
     # GEX source
     base_dir = getenv("GEX_BASE_DIR")
-    target_time_str = getenv("GEX_TARGET_TIME", "11:00")
+    gex_target_time_str = getenv("GEX_TARGET_TIME", "11:00")
     if not base_dir:
         raise SystemExit("GEX_BASE_DIR is not set in .env")
 
@@ -47,11 +47,16 @@ def main():
     PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
 
     # output
-    MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
+    #MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
+    MACROFEATURE_CSV =  get_derived_file(getenv("COMMON_DATA_BASIC_CSV", "trades_raw_temp.csv"))[0]
     out_csv = f"{out_dir}/{MACROFEATURE_CSV}"
 
-    target_t = parse_target_time(target_time_str)
-    target_minutes = target_t.hour * 60 + target_t.minute
+    build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, out_csv)
+
+def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, out_csv):
+
+    gex_target_t = parse_target_time(gex_target_time_str)
+    gex_target_minutes = gex_target_t.hour * 60 + gex_target_t.minute
 
     # Step 1: Load raw data from multiple files
     raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=True)
@@ -72,7 +77,7 @@ def main():
     # Step 2: Merge GEX features
     gex_csv = raw_csv.replace(".csv", "_gex.csv")
     if not SKIP_GEX:
-        gex_merged = merge_gex(trades, base_dir, target_minutes)
+        gex_merged = merge_gex(trades, base_dir, gex_target_minutes)
         # save intermediate result with GEX
         gex_csv = os.path.join(out_dir, os.path.basename(gex_csv))
         gex_merged.to_csv(gex_csv, index=False)
@@ -97,7 +102,7 @@ def main():
         "gex_found": int((gex_merged["gex_missing"] == 0).sum()),
         "gex_missing": int((gex_merged["gex_missing"] == 1).sum()),
         "base_dir": base_dir,
-        "target_time": target_time_str,
+        "gex_target_time": gex_target_time_str,
         "rows_out": int(len(d)),
         "unique_symbols": int(d["baseSymbol"].nunique()) if "baseSymbol" in d.columns else None,
         "vix_non_null": int(d["VIX"].notna().sum()),

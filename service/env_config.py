@@ -79,6 +79,9 @@ def getenv(key, default=None):
     """Drop-in replacement for os.getenv that uses YAML config first."""
     return config.get(key, default)
 
+def get_derived_file(basic_csv):
+    return config.get_derived_file(basic_csv)
+
 def load_env(dotenv_path: str = None):
     load_dotenv(dotenv_path or os.environ.get('DOTENV_PATH', '.env'), override=False)
     env = {k:v for k,v in os.environ.items()}
