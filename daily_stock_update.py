@@ -87,6 +87,7 @@ def stock_price_update(test = False):
 
     folder = "option/put"
     end_date = today
+    # TODO: check the following line
     #end_date = today -pd.Timedelta(days=1) if today.hour < 16 else today 
     files, symbols = get_symbols_last_few_days(folder, end_date)
     # With the symbols, check all the cached prices, check the latest date. For those with previous date, put into a list and update with today's price
@@ -97,9 +98,9 @@ def stock_price_update(test = False):
     for s in symbols:
         price_df, ready = _load_cached_price_data(cache_dir, s)
         latest_date = price_df.index.max() if ready else None
-        # in case latest_date is today then break
+        # in case latest_date is today then continue
         if latest_date and latest_date >= today.replace(hour=0, minute=0, second=0, microsecond=0):
-            break
+            continue
         if not ready:
             to_reload.append(s)
             continue

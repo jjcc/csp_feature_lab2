@@ -12,7 +12,7 @@ from datetime import time
 from pathlib import Path
 from service.data_prepare import add_macro_features
 from service.preprocess import  load_csp_files, merge_gex
-from service.env_config import get_derived_file, getenv
+from service.env_config import get_derived_file, getenv, config
 
 def ensure_cache_dir(out_dir):
     pc = os.path.join(out_dir, "price_cache")
@@ -35,6 +35,8 @@ def main():
 
     # inputs
     out_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    out_dir = os.path.join(out_dir, "data_prep")
+    os.makedirs(out_dir, exist_ok=True)
 
     # GEX source
     base_dir = getenv("GEX_BASE_DIR")
@@ -49,11 +51,24 @@ def main():
     # output
     #MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
     MACROFEATURE_CSV =  get_derived_file(getenv("COMMON_DATA_BASIC_CSV", "trades_raw_temp.csv"))[0]
+    
+    common_configs = config.get_common_configs_raw()
+    print("Common Configs:")
+    for k, v in common_configs.items():
+        #print(f"  {k}: {v}")
+        print(f"For config {k}:")
+        basic_csv = v.get("data_basic_csv", "N/A")
+
+        if k == "original":
+            print("Skipping original")
+            continue
+
+        build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
+
+def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv):
+    
+    MACROFEATURE_CSV =  get_derived_file(basic_csv)[0]
     out_csv = f"{out_dir}/{MACROFEATURE_CSV}"
-
-    build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, out_csv)
-
-def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, out_csv):
 
     gex_target_t = parse_target_time(gex_target_time_str)
     gex_target_minutes = gex_target_t.hour * 60 + gex_target_t.minute
@@ -67,7 +82,7 @@ def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, 
     # raw is not written but used directly below
     #trades = pd.read_csv(csv_path)
 
-    raw_csv = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_temp.csv")
+    raw_csv = basic_csv
     trades = raw
 
     raw_csv = os.path.join(out_dir, os.path.basename(raw_csv))
