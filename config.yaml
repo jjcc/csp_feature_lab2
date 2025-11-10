@@ -2,41 +2,63 @@
 common_configs:
   # Original training data (before Aug 11)
   original: &original_config
-    data_dir: "option_data/put/train"
-    data_basic_csv: "trades_raw.csv"
-    macro_feature_csv: "trades_with_gex_macro.csv"
-    output_csv: "labeled_trades.csv"
+    data_dir: "option/put/unprocessed"
+    data_basic_csv: "trades_raw_orig.csv"
+    macro_feature_csv: "trades_with_gex_macro_orig.csv"
+    output_csv: "labeled_trades_orig.csv"
     # min expiry date plus 1 day in this set is 2024-08-11
     cutoff_date: "2025-08-16"
 
   # Data after Aug 11
   aug_11: &aug_11_config
     data_dir: "option/put/put25_0810-0905"
-    data_basic_csv: "trades_raw_A_0811.csv"
-    macro_feature_csv: "trades_with_gex_macro_a_0811fix.csv"
-    output_csv: "labeled_trades_a_0811fix.csv"
+    data_basic_csv: "trades_raw_a_0811.csv"
+    macro_feature_csv: "trades_with_gex_macro_a_0811.csv"
+    output_csv: "labeled_trades_a_0811.csv"
     cutoff_date: "2025-09-13"
 
   # Data after Sep 8, set B
   sep_8: &sep_8_config
     data_dir: "option/put/put25_0908-0911"
-    data_basic_csv: "trades_raw_B_0908.csv"
-    macro_feature_csv: "trades_with_gex_macro_B_0908.csv"
-    output_csv: "labeled_trades_B_0908.csv"
+    data_basic_csv: "trades_raw_b_0908.csv"
+    macro_feature_csv: "trades_with_gex_macro_b_0908.csv"
+    output_csv: "labeled_trades_b_0908.csv"
     cutoff_date: "2025-09-20"
 
   # Data after Sep 12, set C
   sep_12: &sep_12_config
     data_dir: "option/put/put25_0912-0926"
-    data_basic_csv: "trades_raw_C_0912.csv"
-    macro_feature_csv: "trades_with_gex_macro_ts_c_0912.csv"
+    data_basic_csv: "trades_raw_c_0912.csv"
+    macro_feature_csv: "trades_with_gex_macro_c_0912.csv"
     output_csv: "labeled_trades_c_0912.csv"
 
-  # Data for small test
+  # Data after Sep 29, set D
   sep_29: &sep_29_config
-    data_dir: "option/put/unprocessed_test"
-    macro_feature_csv: "trades_with_gex_macro_ts29b.csv"
-    output_csv: "labeled_trades_t29b.csv"
+    data_dir: "option/put/put25_0929-1010"
+    data_basic_csv: "trades_raw_d_0929.csv"
+    macro_feature_csv: "trades_with_gex_macro_d_0929.csv"
+    output_csv: "labeled_trades_d_0929.csv"
+
+  # Data after Oct 13, set E
+  oct_13: &oct_13_config
+    data_dir: "option/put/put25_1013-1024"
+    data_basic_csv: "trades_raw_e_1013.csv"
+    macro_feature_csv: "trades_with_gex_macro_e_1013.csv"
+    output_csv: "labeled_trades_e_1013.csv"
+
+  # Data after Oct 27, set F
+  oct_27: &oct_27_config
+    data_dir: "option/put/put25_1027-1107"
+    data_basic_csv: "trades_raw_f_1027.csv"
+    macro_feature_csv: "trades_with_gex_macro_f_1027.csv"
+    output_csv: "labeled_trades_f_1027.csv"
+
+
+  # Data for small test
+  #sep_29: &sep_29_config
+  #  data_dir: "option/put/unprocessed_test"
+  #  macro_feature_csv: "trades_with_gex_macro_ts29b.csv"
+  #  output_csv: "labeled_trades_t29b.csv"
 
 # Common values used across sections
 common:
