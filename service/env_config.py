@@ -54,6 +54,23 @@ class ConfigLoader:
             self._config = self._flatten_config(yaml_config)
 
         return {k: v for k, v in self._config.items() if k.startswith(f"{section_name.upper()}_")}
+    
+    def get_common_configs_raw(self):
+        """Get common configuration parameters."""
+        yaml_config = self._load_yaml_config()
+        return yaml_config.get('common_configs', {})
+    
+
+    def get_derived_file(self, basic_csv):
+        # derive macro csv and output csv from basic csv
+        # get the section after "trades_raw_"
+        if "trades_raw_" in basic_csv:
+            section = basic_csv.split("trades_raw_")[-1].split(".csv")[0]
+            macro_csv = f"trades_with_gex_macro_{section}.csv"
+            output_csv = f"labeled_trades_{section}.csv"
+            return macro_csv, output_csv
+        else:
+            return None, None
 
 # Global config instance
 config = ConfigLoader()

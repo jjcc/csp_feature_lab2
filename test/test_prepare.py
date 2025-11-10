@@ -1,7 +1,6 @@
 import unittest
 import joblib
 import pandas as pd
-from a00build_basic_dataset import ensure_cache_dir
 from service.data_prepare import _load_symbol_prices, _save_cached_price_data
 from daily_stock_update import preload_prices_with_cache_by_time
 from service.utils import download_prices_batched, get_symbols_last_few_days
@@ -119,6 +118,27 @@ class TestPrepare(unittest.TestCase):
         self.assertIsNotNone(output_csv)
         print(f"Data dir: {data_dir}, Basic CSV: {basic_csv}")
         print(f"Output dir: {output_dir}, Output CSV: {output_csv}")
+    
+    
+    def test_get_common_configs_raw(self):
+        from service.env_config import config
+        common_configs = config.get_common_configs_raw()
+        self.assertIsInstance(common_configs, dict)
+        print("Common Configs:")
+        for k, v in common_configs.items():
+            #print(f"  {k}: {v}")
+            print(f"For config {k}:")
+            basic_csv = v.get("data_basic_csv", "N/A")
+            # create the macro csv name accordingly
+            macro_csv_x, output_csv_x = config.get_derived_file(basic_csv) 
+
+            macro_csv = v.get("macro_feature_csv", "N/A")
+            output_csv = v.get("output_csv", "N/A")
+
+            assert macro_csv == macro_csv_x, f"Macro CSV mismatch: expected {macro_csv_x}, got {macro_csv}"
+            assert output_csv == output_csv_x, f"Output CSV mismatch: expected {output_csv_x}, got {output_csv}"
+            print(f"{basic_csv},{macro_csv}, {output_csv}")
+
 
 if __name__ == '__main__':
     unittest.main()
