@@ -86,7 +86,8 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
         log_file = "data/price_cache_dates.csv"
 
         updater = GroupedStockUpdater(data_dir=cache_dir, log_file=log_file)
-        updater.update_batch(missing)
+        _,_,fetched = updater.update_batch(missing)
+        prices.update(fetched)
         #fetched_start = start_dt - pd.Timedelta(days=10)
         #st = pd.to_datetime(COMMON_START_DATE)
         #fetched_end = pd.Timestamp.now()
