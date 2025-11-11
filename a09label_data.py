@@ -2,6 +2,13 @@
 import os
 import numpy as np
 import pandas as pd
+
+try:
+    import exchange_calendars as xcals
+    nyse = xcals.get_calendar("XNYS")
+except Exception:
+    nyse = None  # fall back to business-day heuristic below
+
 from service.data_prepare import derive_capital, lookup_close_on_or_before, preload_prices_with_cache
 
 from service.env_config import getenv
@@ -15,6 +22,26 @@ def safe_float(x):
         return float(x)
     except Exception:
         return np.nan
+
+def resolve_last_trading_session(expiry_ts: pd.Timestamp) -> pd.Timestamp:
+    d = pd.Timestamp(expiry_ts).normalize()
+    # Equity options last trade: usually Friday. If weekend, map to Friday.
+    if d.weekday() == 5:  # Sat -> Fri
+        d -= pd.tseries.offsets.BDay(1)
+    elif d.weekday() == 6:  # Sun -> Fri
+        d -= pd.tseries.offsets.BDay(2)
+    # If Friday is a market holiday, BDay(-1) will step to Thu.
+    if d.weekday() != 4:
+        d -= pd
+
+def get_close_on_session(price_df, session_date, use_unadjusted=True):
+    if price_df is None or len(price_df)==0:
+        return np.nan
+    if "date" in price_df.columns:
+        idx = pd.to_datetime(price_df["date"]).dt.normalize()
+        price_df = price_df.assign(_idx=idx).set_index("_idx")
+    col = "close_unadj" if use_unadjusted and "close_unadj" in price_df.columns else "close"
+    return float(price_df[col].get(session_date.normalize(), np.nan))
 
 
 def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = None) -> pd.DataFrame:
@@ -51,15 +78,14 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
         if preload_closes is None:
             return np.nan
 
-        # Don't label future expiration dates
-        expiry_date = pd.to_datetime(r['expirationDate'])
+        expiry_date = pd.to_datetime(r["expirationDate"], errors="coerce")
         if pd.isna(expiry_date) or expiry_date > pd.Timestamp.now():
             return np.nan
-
-        sym = str(r['baseSymbol']).upper()
+        session = resolve_last_trading_session(expiry_date)
+        sym = str(r["baseSymbol"]).upper()
         price_df = preload_closes.get(sym)
-        # Only allow prices within 3 trading days of expiration
-        return lookup_close_on_or_before(price_df, expiry_date, max_days_back=3) if price_df is not None else np.nan
+        return get_close_on_session(price_df, session, use_unadjusted=True)
+
     df['expiry_close'] = df.apply(expiry_close_from_cache, axis=1)
 
     # Compute labels and basic PnL (cash-settled approximation at expiry)
