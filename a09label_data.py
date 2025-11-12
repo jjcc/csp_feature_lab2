@@ -9,7 +9,7 @@ try:
 except Exception:
     nyse = None  # fall back to business-day heuristic below
 
-from service.data_prepare import derive_capital, lookup_close_on_or_before, preload_prices_with_cache
+from service.data_prepare import derive_capital,preload_prices_with_cache
 
 from service.env_config import getenv
 
@@ -27,8 +27,10 @@ def resolve_last_trading_session(expiry_ts: pd.Timestamp) -> pd.Timestamp:
     d = pd.Timestamp(expiry_ts).tz_localize(None).normalize()
     # Prefer exchange calendar if available
     if nyse is not None:
-        # If expiry is a session, keep it; otherwise go to previous session
-        sess = nyse.session_date(d) if nyse.is_session(d) else nyse.previous_session(d)
+        if nyse.is_session(d):
+            sess = nyse.date_to_session(d, direction="none")
+        else:
+            sess = nyse.date_to_session(d, direction="previous")
         return pd.Timestamp(sess).normalize()
 
     # Fallback: map weekends to Friday; if not Friday, step back one business day
@@ -138,6 +140,7 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     return df
 
 def label_csv_file(raw):
+    raw_copy = raw.copy()
     #cut_off_date = "2025-08-08"
     #cut_off_date = "2025-09-06"
     #cut_off_date = "2025-09-11" # the 3rd folder in "unprocessed3"
@@ -148,10 +151,6 @@ def label_csv_file(raw):
     labeled_csv = getenv("COMMON_OUTPUT_CSV", "labeled_trades_t1.csv")
 
     # Filter out trades with future expiration dates before labeling
-    raw_copy = raw_copy[
-        raw_copy["expirationDate"].notna() &
-        (raw_copy["expirationDate"] <= cut_off_date)
-    ].copy()
     before_count = len(raw_copy)
 
     # Only keep trades that have expired by the  today #cut-off date
@@ -179,13 +178,12 @@ def label_csv_file(raw):
         syms, tt, ed, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date
     )
     labeled = build_dataset(raw_copy, max_rows=0, preload_closes=closes)
+    # Keep only rows that could be labeled (win not NaN)
     labeled = labeled[~labeled["win"].isna()].copy()
     print({
         "label_coverage": float(len(labeled) / max(len(raw_copy), 1)),
         "win_rate": float(labeled["win"].mean())
     })
-    # Keep only rows that could be labeled (win not NaN)
-    labeled = labeled[~labeled["win"].isna()].copy()
     out_dir = getenv("COMMON_OUTPUT_DIR", "./output")
     labeled.to_csv(os.path.join(out_dir, labeled_csv), index=False)
 
