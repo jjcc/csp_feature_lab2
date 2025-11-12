@@ -24,15 +24,19 @@ def safe_float(x):
         return np.nan
 
 def resolve_last_trading_session(expiry_ts: pd.Timestamp) -> pd.Timestamp:
-    d = pd.Timestamp(expiry_ts).normalize()
-    # Equity options last trade: usually Friday. If weekend, map to Friday.
-    if d.weekday() == 5:  # Sat -> Fri
+    d = pd.Timestamp(expiry_ts).tz_localize(None).normalize()
+    # Prefer exchange calendar if available
+    if nyse is not None:
+        # If expiry is a session, keep it; otherwise go to previous session
+        sess = nyse.session_date(d) if nyse.is_session(d) else nyse.previous_session(d)
+        return pd.Timestamp(sess).normalize()
+
+    # Fallback: map weekends to Friday; if not Friday, step back one business day
+    while d.weekday() > 4:          # 5=Sat, 6=Sun
         d -= pd.tseries.offsets.BDay(1)
-    elif d.weekday() == 6:  # Sun -> Fri
-        d -= pd.tseries.offsets.BDay(2)
-    # If Friday is a market holiday, BDay(-1) will step to Thu.
-    if d.weekday() != 4:
-        d -= pd
+    if d.weekday() != 4:            # not Friday -> previous business day
+        d -= pd.tseries.offsets.BDay(1)
+    return d.normalize()
 
 def get_close_on_session(price_df, session_date, use_unadjusted=True):
     if price_df is None or len(price_df)==0:
