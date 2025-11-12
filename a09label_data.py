@@ -104,7 +104,7 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 
     # Entry credit model: mid minus a fraction of half-spread
     def entry_credit(r, take_from_mid_pct=0.35, min_abs=0.01):
-        bidPrice = safe_float(r["bidPrice"])
+        bidPrice = safe_float(r.get("bidPrice"))
         #bid = safe_float(r["bid"]); ask = safe_float(r["ask"])
         #if not np.isfinite(bid) or not np.isfinite(ask) or bid<=0 or ask<=0:
         #    return np.nan
@@ -141,26 +141,25 @@ def label_csv_file(raw):
     #cut_off_date = "2025-08-08"
     #cut_off_date = "2025-09-06"
     #cut_off_date = "2025-09-11" # the 3rd folder in "unprocessed3"
-    cut_off_date = "2025-09-29" # the 3rd folder in "unprocessed3"
-    cut_off_date = pd.to_datetime(cut_off_date) if cut_off_date else pd.Timestamp.now()
+    cut_off_date = getenv("CUTOFF_DATE", "2025-09-29")
+    cut_off_date = pd.to_datetime(cut_off_date).normalize()
     batch_size = int(getenv("DATA_BATCH_SIZE", "30"))
     #processed_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
     labeled_csv = getenv("COMMON_OUTPUT_CSV", "labeled_trades_t1.csv")
 
     # Filter out trades with future expiration dates before labeling
-    raw_copy = raw.copy()
-    raw_copy["expirationDate"] = pd.to_datetime(raw_copy["expirationDate"], errors="coerce")
+    raw_copy = raw_copy[
+        raw_copy["expirationDate"].notna() &
+        (raw_copy["expirationDate"] <= cut_off_date)
+    ].copy()
     before_count = len(raw_copy)
 
     # Only keep trades that have expired by the  today #cut-off date
-    #today = pd.Timestamp.now().normalize()
-    # convert today to datetime64[ns]
-    #today = today.astype("datetime64[ns]")
-    today = np.datetime64(pd.Timestamp.now().normalize())
+    # today = np.datetime64(pd.Timestamp.now().normalize())
     raw_copy = raw_copy[
         raw_copy["expirationDate"].notna() &
-        #(raw_copy["expirationDate"] <= cut_off_date)
-        (raw_copy["expirationDate"] <= today)
+        (raw_copy["expirationDate"] <= cut_off_date)
+        #(raw_copy["expirationDate"] <= today)
     ].copy()
     after_count = len(raw_copy)
 
@@ -176,8 +175,15 @@ def label_csv_file(raw):
     tt = pd.to_datetime(raw_copy.get('tradeTime', pd.NaT), errors="coerce")
     ed = pd.to_datetime(raw_copy.get('expirationDate', pd.NaT), errors="coerce")
 
-    closes = preload_prices_with_cache(syms, tt, ed, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date)
+    closes = preload_prices_with_cache(
+        syms, tt, ed, cache_dir, batch_size=batch_size, cut_off_date=cut_off_date
+    )
     labeled = build_dataset(raw_copy, max_rows=0, preload_closes=closes)
+    labeled = labeled[~labeled["win"].isna()].copy()
+    print({
+        "label_coverage": float(len(labeled) / max(len(raw_copy), 1)),
+        "win_rate": float(labeled["win"].mean())
+    })
     # Keep only rows that could be labeled (win not NaN)
     labeled = labeled[~labeled["win"].isna()].copy()
     out_dir = getenv("COMMON_OUTPUT_DIR", "./output")
