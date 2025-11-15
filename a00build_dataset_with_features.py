@@ -50,17 +50,20 @@ def main():
 
     # output
     #MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
-    MACROFEATURE_CSV =  get_derived_file(getenv("COMMON_DATA_BASIC_CSV", "trades_raw_temp.csv"))[0]
+    # For one
+    BASIC_CSV = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_orig.csv")
+    #basic_csv = BASIC_CSV
+    #build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
     
+    # For all
     common_configs = config.get_common_configs_raw()
-    print("Common Configs:")
     for k, v in common_configs.items():
         #print(f"  {k}: {v}")
-        print(f"For config {k}:")
         basic_csv = v.get("data_basic_csv", "N/A")
+        data_dir = v.get("data_dir", "N/A")
 
         if k == "original":
-            print("Skipping original")
+            print(f"Skipping {k}")
             continue
 
         build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
