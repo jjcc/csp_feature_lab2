@@ -102,7 +102,7 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
             return np.nan
         return 1 if expiry_close >= strike else 0  # win = OTM at expiry
 
-    df["win"] = df.apply(label_row, axis=1)
+    df["won_rough"] = df.apply(label_row, axis=1)
 
     # Entry credit model: mid minus a fraction of half-spread
     def entry_credit(r, take_from_mid_pct=0.35, min_abs=0.01):
@@ -138,6 +138,9 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     # Total PnL and return
     df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
     df["return_pct"] = np.where(df["capital"]>0, df["total_pnl"]/df["capital"]*100.0, np.nan)
+
+    # add final win label based on total_pnl
+    df["won"] = df["total_pnl"] > 0
 
     return df
 
@@ -188,17 +191,24 @@ def label_csv_file(raw, output_csv, cut_off_date=None):
     )
     labeled = build_dataset(raw_copy, max_rows=0, preload_closes=closes)
     # Keep only rows that could be labeled (win not NaN)
-    labeled = labeled[~labeled["win"].isna()].copy()
+    labeled = labeled[~labeled["won"].isna()].copy()
     print({
         "label_coverage": float(len(labeled) / max(len(raw_copy), 1)),
-        "win_rate": float(labeled["win"].mean())
+        "win_rate": float(labeled["won"].mean())
     })
     out_dir = getenv("COMMON_OUTPUT_DIR", "./output")
     out_dir = os.path.join(out_dir, "data_labeled")
     labeled.to_csv(os.path.join(out_dir, labeled_csv), index=False)
 
 
-def main():
+def main(merge_mode=False):
+    if merge_mode:
+        lablel_merge_dataset()
+    else:
+        label_single_dataset()
+
+
+def label_single_dataset():
     basic_csv = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_orig.csv")
     out_dir = getenv("COMMON_OUTPUT_DIR", "output")
     out_dir = os.path.join(out_dir, "data_prep")
@@ -211,5 +221,51 @@ def main():
 
     cut_off_date = getenv("COMMON_CUTOFF_DATE", "2025-09-29")
     label_csv_file(df, output_csv, cut_off_date)
+
+def lablel_merge_dataset():
+    from service.env_config import config 
+
+    
+    # inputs
+    input_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    input_dir = os.path.join(input_dir, "data_merged")
+    out_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    out_dir = os.path.join(out_dir, "data_labeled")
+    os.makedirs(out_dir, exist_ok=True)
+
+    common_configs = config.get_common_configs_raw()
+    # get the cutoff date for each tag
+    cutoff_dates_by_tag = {}
+    for k, v in common_configs.items():
+        basic_csv = v.get("data_basic_csv", "N/A")
+        file_name = basic_csv.replace(".csv", "")
+        file_name_seg = file_name.split("_")
+        group_tag = file_name_seg[file_name_seg.index("raw") +1]
+        cutoff_date = v.get("cutoff_date", None)
+        cutoff_dates_by_tag[group_tag] = cutoff_date
+
+    # get the files in the input_dir
+    files = [f for f in os.listdir(input_dir) if f.endswith(".csv")]
+    files.sort()
+    for f in files:
+        fpath = os.path.join(input_dir, f)
+        print(f"Processing file: {fpath}")
+        df = pd.read_csv(fpath, index_col="row_id")
+
+        # get the cutoff date from the config
+        tag_block = f.split("_")[-1].replace(".csv", "")
+        if tag_block == "orig":
+            last_tag = "orig"
+        else:
+            last_tag = tag_block[-1]
+        common_configs = config.get_common_configs_raw()
+        cutoff_date = cutoff_dates_by_tag.get(last_tag, None)
+        print(f"  Cutoff date for tag {last_tag}: {cutoff_date}")
+        output_csv = f"labeled_{f}"
+        label_csv_file(df, output_csv, cutoff_date)
+    
+    
+
 if __name__ == "__main__":
-    main()
+    merge_mode = True
+    main(merge_mode=merge_mode)

@@ -15,7 +15,8 @@ from service.env_config import get_derived_file, getenv, config
 def main():
 
     # inputs
-    input_dir = os.path.join(out_dir, "data_prep")
+    input_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    input_dir = os.path.join(input_dir, "data_prep")
     out_dir = getenv("COMMON_OUTPUT_DIR", "output")
     out_dir = os.path.join(out_dir, "data_merged")
     os.makedirs(out_dir, exist_ok=True)
@@ -84,25 +85,6 @@ def merge_dataset_with_feat():
     pass
     
 
-
-    # Save
-    #d.to_csv(out_csv, index=False)
-
-    ## Simple report
-    #rep = {
-    #     "rows_gex_merged": len(gex_merged),
-    #    "gex_found": int((gex_merged["gex_missing"] == 0).sum()),
-    #    "gex_missing": int((gex_merged["gex_missing"] == 1).sum()),
-    #    "base_dir": base_dir,
-    #    "gex_target_time": gex_target_time_str,
-    #    "rows_out": int(len(d)),
-    #    "unique_symbols": int(d["baseSymbol"].nunique()) if "baseSymbol" in d.columns else None,
-    #    "vix_non_null": int(d["VIX"].notna().sum()),
-    #    "prev_close_non_null": int(d["prev_close"].notna().sum()),
-    #    "px_base_dir": PX_BASE_DIR,
-    #    "out_csv": out_csv
-    #}
-    #print(json.dumps(rep, indent=2))
 
 if __name__ == "__main__":
     main()
