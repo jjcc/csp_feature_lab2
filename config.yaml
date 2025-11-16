@@ -27,24 +27,28 @@ common_configs:
     data_dir: "option/put/put25_0915-0926"
     data_basic_csv: "trades_raw_c_0915.csv"
     output_csv: "labeled_trades_c_0915.csv"
+    cutoff_date: "2025-10-04"
 
   # Data after Sep 29, set D
   sep_29: &sep_29_config
     data_dir: "option/put/put25_0929-1010"
     data_basic_csv: "trades_raw_d_0929.csv"
     output_csv: "labeled_trades_d_0929.csv"
+    cutoff_date: "2025-10-18"
 
   # Data after Oct 13, set E
   oct_13: &oct_13_config
     data_dir: "option/put/put25_1013-1024"
     data_basic_csv: "trades_raw_e_1013.csv"
     output_csv: "labeled_trades_e_1013.csv"
+    cutoff_date: "2025-11-01"
 
   # Data after Oct 27, set F
   oct_27: &oct_27_config
     data_dir: "option/put/put25_1027-1107"
     data_basic_csv: "trades_raw_f_1027.csv"
     output_csv: "labeled_trades_f_1027.csv"
+    cutoff_date: "2025-11-15"
 
 
   # Data for small test

@@ -11,7 +11,7 @@ except Exception:
 
 from service.data_prepare import derive_capital,preload_prices_with_cache
 
-from service.env_config import getenv
+from service.env_config import get_derived_file, getenv
 
 
 
@@ -46,7 +46,7 @@ def get_close_on_session(price_df, session_date, use_unadjusted=True):
     if "date" in price_df.columns:
         idx = pd.to_datetime(price_df["date"]).dt.normalize()
         price_df = price_df.assign(_idx=idx).set_index("_idx")
-    col = "close_unadj" if use_unadjusted and "close_unadj" in price_df.columns else "close"
+    col = "Adj Close" if not use_unadjusted and "Adj Close" in price_df.columns else "Close"
     return float(price_df[col].get(session_date.normalize(), np.nan))
 
 
@@ -110,6 +110,8 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
         #bid = safe_float(r["bid"]); ask = safe_float(r["ask"])
         #if not np.isfinite(bid) or not np.isfinite(ask) or bid<=0 or ask<=0:
         #    return np.nan
+        if not np.isfinite(bidPrice):
+            return np.nan
         
         #mid = 0.5*(bid+ask)
         mid = bidPrice
@@ -139,16 +141,16 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 
     return df
 
-def label_csv_file(raw):
+def label_csv_file(raw, output_csv, cut_off_date=None):
+    raw["expirationDate"] = pd.to_datetime(raw["expirationDate"], errors="coerce")
     raw_copy = raw.copy()
     #cut_off_date = "2025-08-08"
     #cut_off_date = "2025-09-06"
     #cut_off_date = "2025-09-11" # the 3rd folder in "unprocessed3"
-    cut_off_date = getenv("CUTOFF_DATE", "2025-09-29")
     cut_off_date = pd.to_datetime(cut_off_date).normalize()
     batch_size = int(getenv("DATA_BATCH_SIZE", "30"))
     #processed_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
-    labeled_csv = getenv("COMMON_OUTPUT_CSV", "labeled_trades_t1.csv")
+    labeled_csv = output_csv
 
     # Filter out trades with future expiration dates before labeling
     before_count = len(raw_copy)
@@ -163,8 +165,15 @@ def label_csv_file(raw):
     after_count = len(raw_copy)
 
     if before_count != after_count:
-        print(f"Filtered out {before_count - after_count} trades with expiration dates after {cut_off_date}")
+        print(f"Filtered out with cutoff {before_count - after_count} trades with expiration dates after {cut_off_date}")
         print(f"Remaining trades to label: {after_count}")
+    
+    # filter out trades with daysToExpiration > 14
+    raw_copy = raw_copy[raw_copy["daysToExpiration"] <= 14]
+    after_count2 = len(raw_copy)
+    if after_count != after_count2:
+        print(f"Filtered out with daysToExpiration > 14 : {after_count - after_count2} trades")
+        print(f"Remaining trades to label: {after_count2}")
 
     # Preload price series with caching
     cache_dir = getenv("COMMON_OUTPUT_DIR", "./output")
@@ -185,18 +194,22 @@ def label_csv_file(raw):
         "win_rate": float(labeled["win"].mean())
     })
     out_dir = getenv("COMMON_OUTPUT_DIR", "./output")
+    out_dir = os.path.join(out_dir, "data_labeled")
     labeled.to_csv(os.path.join(out_dir, labeled_csv), index=False)
 
 
 def main():
+    basic_csv = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_orig.csv")
     out_dir = getenv("COMMON_OUTPUT_DIR", "output")
-    input_csv = getenv("COMMON_MACRO_FEATURE_CSV", "trades_with_gex_macro.csv")
+    out_dir = os.path.join(out_dir, "data_prep")
+    input_csv, output_csv =  get_derived_file(basic_csv)
     input_csv = f"{out_dir}/{input_csv}"
     # filter rows with missing GEX if specified. Default: keep all rows
     if getenv("GEX_FILTER", "0").strip() in {"1","true","yes","y","on"}:
         input_csv = input_csv.replace(".csv", "_gexonly.csv")
     df = pd.read_csv(input_csv, index_col="row_id")
 
-    label_csv_file(df)
+    cut_off_date = getenv("COMMON_CUTOFF_DATE", "2025-09-29")
+    label_csv_file(df, output_csv, cut_off_date)
 if __name__ == "__main__":
     main()
