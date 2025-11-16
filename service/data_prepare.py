@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import numpy as np
 import pandas as pd
@@ -45,6 +46,9 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
     cache_dir = os.path.join(out_dir, "price_cache")
     os.makedirs(cache_dir, exist_ok=True)
 
+    with open("data/missing_stocks.json", "r") as f:
+        missing_stocks = json.load(f)
+
     # Determine symbols and window
     # syms = raw_df['baseSymbol'].dropna().astype(str).str.upper().unique().tolist()
     # Window: from min(tradeTime, expiry)-5 days to max(expiry)+1 day
@@ -73,6 +77,9 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
     prices = {}
     missing = []
     for s in syms:
+        if s in missing_stocks:
+            print(f"[INFO] Skipping known stock missing in yfinance: {s}")
+            continue
         price_df, _ = _load_cached_price_data(cache_dir, s)
         if s == "WOLF":
             prices[s] = price_df
@@ -199,6 +206,11 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
             if pd.api.types.is_datetime64_any_dtype(df.index):
                 df = df.sort_index()
                 if symbol == "WOLF": # special case
+                    # check if the end_date is less than "2015-09-27"
+                    if end_date < pd.to_datetime("2025-09-27"):
+                        # reload df from another file
+                        df = pd.read_parquet("data/wolf/WOLF.parquet") # this is an old price which was overridden in yfinance
+                        df.sort_index()
                     close_col = "Close" if "Close" in df.columns else "close"
                     return df.loc[start_date:, close_col].rename("Close").astype(float)
                 # check if min and max date cover the range
