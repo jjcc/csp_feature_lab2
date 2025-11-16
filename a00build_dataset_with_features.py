@@ -54,6 +54,7 @@ def main():
     BASIC_CSV = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_orig.csv")
     #basic_csv = BASIC_CSV
     #build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
+    #exit(0)
     
     # For all
     common_configs = config.get_common_configs_raw()
