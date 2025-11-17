@@ -82,6 +82,11 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
             continue
         price_df, _ = _load_cached_price_data(cache_dir, s)
         if s == "WOLF":
+            # Special case for WOLF
+            if end_dt < pd.to_datetime("2025-09-27"):
+                df = pd.read_parquet("data/wolf/WOLF.parquet") # this is an old price which was overridden in yfinance
+                df.sort_index(inplace=True)
+                price_df = df
             prices[s] = price_df
             continue
         if price_df is not None and (price_df.index.min() <= start_dt) and (price_df.index.max() >= end_dt):
