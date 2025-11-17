@@ -6,7 +6,8 @@
   * (in future) run "a03_merge_fundementals_events.py" to add more features
   * run "a09label_data.py" to label the data
 * Training:
-  * run "tran_winner_classifier_pct_oof.py" to train the model
+  * ~~run "tran_winner_classifier_pct_oof.py" to train the model~~
+  * run "b01tran_winner_classifier_pct_oof.py" to train the model
 * Testing:
   * run "score_winner_classifer_env.py" to score the data
 
