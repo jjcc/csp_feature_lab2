@@ -1,4 +1,11 @@
-
+"""
+Label option trade dataset with win/loss based on expiry prices.
+There are two modes:
+ 1) single dataset labeling: label a single prepared dataset CSV file
+ 2) merged dataset labeling: label all merged datasets in the data_merged folder
+ 
+The cutoff dates for labeling are read from the common configs.
+"""
 import os
 import numpy as np
 import pandas as pd
