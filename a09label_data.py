@@ -205,7 +205,8 @@ def main(merge_mode=False):
     if merge_mode:
         lablel_merge_dataset()
     else:
-        label_single_dataset()
+        #label_single_dataset()
+        label_multiple_single_dataset()
 
 
 def label_single_dataset():
@@ -222,8 +223,30 @@ def label_single_dataset():
     cut_off_date = getenv("COMMON_CUTOFF_DATE", "2025-09-29")
     label_csv_file(df, output_csv, cut_off_date)
 
+def label_multiple_single_dataset():
+
+    input_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    input_dir = os.path.join(input_dir, "data_prep")
+    out_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    out_dir = os.path.join(out_dir, "data_labeled")
+    os.makedirs(out_dir, exist_ok=True)
+
+    cutoff_dates_by_tag = get_cutoff_dates()
+    files = [f for f in os.listdir(input_dir) if f.startswith("trades_with_gex") and f.endswith(".csv")]
+    files.sort()
+    for f in files:
+        fpath = os.path.join(input_dir, f)
+        print(f"Processing file: {fpath}")
+        df = pd.read_csv(fpath, index_col="row_id")
+
+        # get the cutoff date from the config
+        last_tag = get_tag(f, merged = False)
+        cutoff_date = cutoff_dates_by_tag.get(last_tag, None)
+        print(f"  Cutoff date for tag {last_tag}: {cutoff_date}")
+        output_csv = f"labeled_{f}"
+        label_csv_file(df, output_csv, cutoff_date)
+
 def lablel_merge_dataset():
-    from service.env_config import config 
 
     
     # inputs
@@ -233,16 +256,7 @@ def lablel_merge_dataset():
     out_dir = os.path.join(out_dir, "data_labeled")
     os.makedirs(out_dir, exist_ok=True)
 
-    common_configs = config.get_common_configs_raw()
-    # get the cutoff date for each tag
-    cutoff_dates_by_tag = {}
-    for k, v in common_configs.items():
-        basic_csv = v.get("data_basic_csv", "N/A")
-        file_name = basic_csv.replace(".csv", "")
-        file_name_seg = file_name.split("_")
-        group_tag = file_name_seg[file_name_seg.index("raw") +1]
-        cutoff_date = v.get("cutoff_date", None)
-        cutoff_dates_by_tag[group_tag] = cutoff_date
+    cutoff_dates_by_tag = get_cutoff_dates()
 
     # get the files in the input_dir
     files = [f for f in os.listdir(input_dir) if f.endswith(".csv")]
@@ -253,19 +267,44 @@ def lablel_merge_dataset():
         df = pd.read_csv(fpath, index_col="row_id")
 
         # get the cutoff date from the config
+        last_tag = get_tag(f, merged = True)
+        cutoff_date = cutoff_dates_by_tag.get(last_tag, None)
+        print(f"  Cutoff date for tag {last_tag}: {cutoff_date}")
+        output_csv = f"labeled_{f}"
+        label_csv_file(df, output_csv, cutoff_date)
+
+    
+def get_tag(f, merged=False):
+    if not merged:
+        tag_block = f.split("_")[4].replace(".csv", "")
+        last_tag = tag_block
+    else: # case of merged files
         tag_block = f.split("_")[-1].replace(".csv", "")
         if tag_block == "orig":
             last_tag = "orig"
         else:
             last_tag = tag_block[-1]
-        common_configs = config.get_common_configs_raw()
-        cutoff_date = cutoff_dates_by_tag.get(last_tag, None)
-        print(f"  Cutoff date for tag {last_tag}: {cutoff_date}")
-        output_csv = f"labeled_{f}"
-        label_csv_file(df, output_csv, cutoff_date)
+    return last_tag
     
-    
+def get_cutoff_dates():
+    """
+    Get the cutoff dates from the common configs
+    Returns a dictionary of tag to cutoff date
+    """
+    from service.env_config import config 
+    common_configs = config.get_common_configs_raw()
+    # get the cutoff date for each tag
+    cutoff_dates_by_tag = {}
+    for k, v in common_configs.items():
+        basic_csv = v.get("data_basic_csv", "N/A")
+        file_name = basic_csv.replace(".csv", "")
+        file_name_seg = file_name.split("_")
+        group_tag = file_name_seg[file_name_seg.index("raw") +1]
+        cutoff_date = v.get("cutoff_date", None)
+        cutoff_dates_by_tag[group_tag] = cutoff_date
+    return cutoff_dates_by_tag
 
 if __name__ == "__main__":
-    merge_mode = True
+    #merge_mode = True
+    merge_mode = False  
     main(merge_mode=merge_mode)
