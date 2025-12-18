@@ -4,22 +4,29 @@
 # Now also includes macro features like VIX and price returns
 import os
 import json
+from dataclasses import dataclass
 import numpy as np
 
 from datetime import time
 from pathlib import Path
+from typing import Optional, Tuple, Dict, Any
+
 import pandas as pd
 
 from service.data_prepare import add_macro_features
 from service.preprocess import load_csp_files, merge_gex
 from service.env_config import get_derived_file, getenv, config
 
-def ensure_cache_dir(out_dir):
+
+def ensure_cache_dir(out_dir: str) -> str:
+    """Kept for backward compatibility; some pipelines expect price_cache dir existence."""
     pc = os.path.join(out_dir, "price_cache")
     os.makedirs(pc, exist_ok=True)
     return pc
 
+
 def parse_target_time(s: str) -> time:
+    """Parse 'HH:MM' into datetime.time; fallback to 11:00 on error."""
     try:
         hh, mm = s.split(":")
         return time(int(hh), int(mm))
