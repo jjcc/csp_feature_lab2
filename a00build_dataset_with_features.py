@@ -24,58 +24,6 @@ def ensure_cache_dir(out_dir: str) -> str:
     os.makedirs(pc, exist_ok=True)
     return pc
 
-
-def parse_target_time(s: str) -> time:
-    """Parse 'HH:MM' into datetime.time; fallback to 11:00 on error."""
-    try:
-        hh, mm = s.split(":")
-        return time(int(hh), int(mm))
-    except Exception:
-        return time(11, 0)
-
-
-
-def main():
-    data_dir = getenv("COMMON_DATA_DIR", "")
-    glob_pat = getenv("DATA_GLOB", "coveredPut_*.csv")
-    target_time = getenv("DATA_TARGET_TIME", "11:00")
-
-    # inputs
-    out_dir = getenv("COMMON_OUTPUT_DIR", "output")
-    out_dir = os.path.join(out_dir, "data_prep")
-    os.makedirs(out_dir, exist_ok=True)
-
-    # GEX source
-    base_dir = getenv("GEX_BASE_DIR")
-    gex_target_time_str = getenv("GEX_TARGET_TIME", "11:00")
-    if not base_dir:
-        raise SystemExit("GEX_BASE_DIR is not set in .env")
-
-    # VIX and price sources
-    VIX_CSV     = getenv("MACRO_VIX_CSV", "").strip() or None
-    PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
-
-    # output
-    #MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
-    # For one
-    BASIC_CSV = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_orig.csv")
-    #basic_csv = BASIC_CSV
-    #build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
-    #exit(0)
-    
-    # For all
-    common_configs = config.get_common_configs_raw()
-    for k, v in common_configs.items():
-        #print(f"  {k}: {v}")
-        basic_csv = v.get("data_basic_csv", "N/A")
-        data_dir = v.get("data_dir", "N/A")
-
-        if k == "original":
-            print(f"Skipping {k}")
-            continue
-
-        build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
-
 def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv):
     
     MACROFEATURE_CSV =  get_derived_file(basic_csv)[0]
@@ -137,6 +85,59 @@ def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, 
         "out_csv": out_csv
     }
     print(json.dumps(rep, indent=2))
+
+
+def parse_target_time(s: str) -> time:
+    """Parse 'HH:MM' into datetime.time; fallback to 11:00 on error."""
+    try:
+        hh, mm = s.split(":")
+        return time(int(hh), int(mm))
+    except Exception:
+        return time(11, 0)
+
+
+
+def main():
+    data_dir = getenv("COMMON_DATA_DIR", "")
+    glob_pat = getenv("DATA_GLOB", "coveredPut_*.csv")
+    target_time = getenv("DATA_TARGET_TIME", "11:00")
+
+    # inputs
+    out_dir = getenv("COMMON_OUTPUT_DIR", "output")
+    out_dir = os.path.join(out_dir, "data_prep")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # GEX source
+    base_dir = getenv("GEX_BASE_DIR")
+    gex_target_time_str = getenv("GEX_TARGET_TIME", "11:00")
+    if not base_dir:
+        raise SystemExit("GEX_BASE_DIR is not set in .env")
+
+    # VIX and price sources
+    VIX_CSV     = getenv("MACRO_VIX_CSV", "").strip() or None
+    PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
+
+    # output
+    #MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
+    # For one
+    BASIC_CSV = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_orig.csv")
+    #basic_csv = BASIC_CSV
+    #build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
+    #exit(0)
+    
+    # For all
+    common_configs = config.get_common_configs_raw()
+    for k, v in common_configs.items():
+        #print(f"  {k}: {v}")
+        basic_csv = v.get("data_basic_csv", "N/A")
+        data_dir = v.get("data_dir", "N/A")
+
+        if k == "original":
+            print(f"Skipping {k}")
+            continue
+
+        build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
+
 
 if __name__ == "__main__":
     main()
