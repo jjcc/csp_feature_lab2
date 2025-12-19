@@ -24,12 +24,39 @@ def ensure_cache_dir(out_dir: str) -> str:
     os.makedirs(pc, exist_ok=True)
     return pc
 
-def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv):
+
+def parse_target_time(s: str) -> time:
+    """Parse 'HH:MM' into datetime.time; fallback to 11:00 on error."""
+    try:
+        hh, mm = s.split(":")
+        return time(int(hh), int(mm))
+    except Exception:
+        return time(11, 0)
+
+
+@dataclass
+class BuildOutputs:
+    df: pd.DataFrame
+    report: Dict[str, Any]
+    paths: Dict[str, Optional[str]]
+
+
+def build_dataset_with_feat(
+    data_dir: str,
+    glob_pat: str,
+    target_time: str,
+    out_dir: str,
+    base_dir: str,
+    gex_target_time: str,
+    VIX_CSV: Optional[str],
+    PX_BASE_DIR: Optional[str],
+    basic_csv: str
+):
     
     MACROFEATURE_CSV =  get_derived_file(basic_csv)[0]
     out_csv = f"{out_dir}/{MACROFEATURE_CSV}"
 
-    gex_target_t = parse_target_time(gex_target_time_str)
+    gex_target_t = parse_target_time(gex_target_time)
     gex_target_minutes = gex_target_t.hour * 60 + gex_target_t.minute
 
     # Step 1: Load raw data from multiple files
@@ -76,7 +103,7 @@ def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, 
         "gex_found": int((gex_merged["gex_missing"] == 0).sum()),
         "gex_missing": int((gex_merged["gex_missing"] == 1).sum()),
         "base_dir": base_dir,
-        "gex_target_time": gex_target_time_str,
+        "gex_target_time": gex_target_time,
         "rows_out": int(len(d)),
         "unique_symbols": int(d["baseSymbol"].nunique()) if "baseSymbol" in d.columns else None,
         "vix_non_null": int(d["VIX"].notna().sum()),
@@ -85,17 +112,6 @@ def build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, 
         "out_csv": out_csv
     }
     print(json.dumps(rep, indent=2))
-
-
-def parse_target_time(s: str) -> time:
-    """Parse 'HH:MM' into datetime.time; fallback to 11:00 on error."""
-    try:
-        hh, mm = s.split(":")
-        return time(int(hh), int(mm))
-    except Exception:
-        return time(11, 0)
-
-
 
 def main():
     data_dir = getenv("COMMON_DATA_DIR", "")
@@ -114,21 +130,12 @@ def main():
         raise SystemExit("GEX_BASE_DIR is not set in .env")
 
     # VIX and price sources
-    VIX_CSV     = getenv("MACRO_VIX_CSV", "").strip() or None
+    VIX_CSV = getenv("MACRO_VIX_CSV", "").strip() or None
     PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
 
-    # output
-    #MACROFEATURE_CSV = getenv("COMMON_MACRO_FEATURE_CSV", "labeled_trades_gex_macro.csv")
-    # For one
-    BASIC_CSV = getenv("COMMON_DATA_BASIC_CSV", "trades_raw_orig.csv")
-    #basic_csv = BASIC_CSV
-    #build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
-    #exit(0)
-    
     # For all
     common_configs = config.get_common_configs_raw()
     for k, v in common_configs.items():
-        #print(f"  {k}: {v}")
         basic_csv = v.get("data_basic_csv", "N/A")
         data_dir = v.get("data_dir", "N/A")
 
@@ -136,7 +143,16 @@ def main():
             print(f"Skipping {k}")
             continue
 
-        build_dataset_with_feat(data_dir, glob_pat, target_time, out_dir, base_dir, gex_target_time_str, VIX_CSV, PX_BASE_DIR, basic_csv)
+        build_dataset_with_feat(
+            data_dir, 
+            glob_pat, 
+            target_time, 
+            out_dir, 
+            base_dir, 
+            gex_target_time_str,
+            VIX_CSV, 
+            PX_BASE_DIR, 
+            basic_csv)
 
 
 if __name__ == "__main__":
