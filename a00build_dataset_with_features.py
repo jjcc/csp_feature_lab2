@@ -60,13 +60,13 @@ def build_dataset_with_feat(
     gex_target_minutes = gex_target_t.hour * 60 + gex_target_t.minute
 
     # Step 1: Load raw data from multiple files
-    raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=True)
-    #raw = load_csp_files(data_dir, glob_pat, target_time=target_time, enforce_daily_pick=False)
-
-    # rename index to "row_id" for tracking
+    raw = load_csp_files(
+        data_dir,
+        glob_pat,
+        target_time=target_time,
+        enforce_daily_pick=True
+    )
     raw = raw.reset_index().rename(columns={"index": "row_id"})
-    # raw is not written but used directly below
-    #trades = pd.read_csv(csv_path)
 
     raw_csv = basic_csv
     trades = raw
