@@ -284,6 +284,8 @@ def _per_symbol_feature_frame(s_px: pd.Series, start_date, max_trade_date) -> pd
 
     out = pd.DataFrame(index=cal)
     out["prev_close"]   = daily_ff.shift(1)                     # Close(T-1)
+    # round to 4 decimal places
+    out["prev_close"] = out["prev_close"].round(4)
     out["ret_2d"]       = ret1d_lag.rolling(2, min_periods=2).sum()
     out["ret_5d"]       = ret1d_lag.rolling(5, min_periods=5).sum()
     vol20               = ret1d_lag.rolling(20, min_periods=5).std()

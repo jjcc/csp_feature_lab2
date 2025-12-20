@@ -144,6 +144,11 @@ def compute_gex_features(df_gex: pd.DataFrame, ul_price: float) -> dict:
     if pd.notna(out["gex_flip_strike"]) and ul_price is not None and not np.isnan(ul_price):
         out["gex_distance_to_flip"] = float(out["gex_flip_strike"] - ul_price)
 
+    # for all the columns, round to 6 decimal places
+    for k in out.keys():
+        if isinstance(out[k], float) and not math.isnan(out[k]):
+            out[k] = round(out[k], 6)
+
     return out
 
 def merge_gex(trades, base_dir, target_minutes):
