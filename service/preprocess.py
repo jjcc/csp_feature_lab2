@@ -56,6 +56,45 @@ def pick_daily_snapshot_files(data_dir: str, pattern: str, target_time_str: str 
     chosen = [str(Path(p)) for p in chosen]
     return sorted(chosen)
 
+def filter_by_dte(df, dte_weekday_map = {4:0, 3:1}):
+    """
+    Docstring for filter_by_dte
+    
+    :param df: input dataframe
+    :param dte_weekday_map: mapping of days to expiration (DTE) to expected capture weekday
+        {4:0, 3:1} means DTE 4 should be captured on Monday (0), DTE 3 on Tuesday (1)
+        {11:0, 10:1} means DTE 11 should be captured on Monday (0), DTE 10 on Tuesday (1)
+    :return: filtered dataframe
+    """ 
+
+    dtes = [dte for dte in dte_weekday_map]
+    weekdays = [dte_weekday_map[dte] for dte in dtes]
+    df_filtered = df[df["daysToExpiration"].isin(dtes)]
+    df_filtered = df_filtered[df_filtered["captureWeekday"].isin(weekdays)]
+    return df_filtered
+
+def keep_one_row_per_contract_per_day(
+            df,
+            contract_id_col="symbol",
+            dt_col="captureTime",
+            target_time="11:00",
+        ):
+    df = df.copy()
+
+    tgt = int(target_time.split(":")[0]) * 60 + int(target_time.split(":")[1])
+
+    df["_date"] = df[dt_col].dt.date
+    df["_tod_min"] = df[dt_col].dt.hour * 60 + df[dt_col].dt.minute
+    df["_time_diff"] = (df["_tod_min"] - tgt).abs()
+
+    df = (
+        df.sort_values([contract_id_col, "_date", "_time_diff", dt_col], kind="mergesort")
+          .groupby([contract_id_col, "_date"], as_index=False)
+          .first()
+    )
+
+    return df.drop(columns=["_tod_min", "_time_diff", "_date"], errors="ignore")
+
 
 def load_csp_files(data_dir: str, pattern: str, target_time="11:00", enforce_daily_pick=True, cut_off_date=None) -> pd.DataFrame:
     if enforce_daily_pick:
@@ -64,7 +103,7 @@ def load_csp_files(data_dir: str, pattern: str, target_time="11:00", enforce_dai
         import glob, os
         paths = sorted(glob.glob(os.path.join(data_dir, pattern)))
     frames = []
-    for p in paths:
+    for idx, p in enumerate(paths):
         try:
             df = pd.read_csv(p)
             df = df.drop(columns=["baseSymbolType","Unnamed: 0", "symbolType"], errors='ignore')
@@ -73,9 +112,30 @@ def load_csp_files(data_dir: str, pattern: str, target_time="11:00", enforce_dai
             frames.append(df)
         except Exception as e:
             print(f"[WARN] Could not read {p}: {e}")
+        if (idx + 1) % 100 == 0:
+            print(f"[INFO] --load_csp_files(): Loaded {idx+1}/{len(paths)} files")
+        
     if not frames:
         raise SystemExit(f"No files found for pattern {pattern} in {data_dir}")
-    return pd.concat(frames, ignore_index=True)
+    df_all = pd.concat(frames, ignore_index=True)
+    # additional processing to add captureTime column so that we can use later
+    df_all['capture_time'] = df_all['__source_file'].apply(
+        lambda x: (
+            [x.split('.')[0].split('_')[-3], ':'.join(x.split('.')[0].split('_')[-2:])]
+            if len(x.split('.')[0].split('_')) >= 3
+            else [None, None]
+        )
+    )
+    df_all['captureTime'] = pd.to_datetime(df_all['capture_time'].apply(lambda x: f"{x[0]} {x[1]}:00"), errors='coerce')
+    df_all['captureWeekday'] = pd.to_datetime(df_all['capture_time'].apply(lambda x: x[0]), errors='coerce').dt.weekday
+    # Need to keep only one row per contract per day
+    df_all = keep_one_row_per_contract_per_day(
+        df_all,
+        contract_id_col="symbol",
+        dt_col="captureTime",
+        target_time=target_time,
+    )
+    return df_all
 
 
 def compute_gex_features(df_gex: pd.DataFrame, ul_price: float) -> dict:
