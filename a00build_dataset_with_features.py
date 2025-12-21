@@ -20,7 +20,7 @@ from typing import Optional, Tuple, Dict, Any
 import pandas as pd
 
 from service.data_prepare import add_macro_features
-from service.preprocess import load_csp_files, merge_gex
+from service.preprocess import filter_by_dte, load_csp_files, merge_gex
 from service.env_config import get_derived_file, getenv, config
 
 
@@ -61,6 +61,7 @@ def build_dataset_with_features(
     out_dir: Optional[str] = None,
     basic_csv_name: Optional[str] = None,
     skip_gex_merge: bool = False,
+    filter_func: Optional[callable] = None,
 ) -> BuildOutputs:
     """
     Build a feature dataset with:
@@ -123,6 +124,8 @@ def build_dataset_with_features(
         target_time=target_time,
         enforce_daily_pick=enforce_daily_pick,
     )
+    if filter_func:
+        raw = filter_func(raw)
     raw = raw.reset_index().rename(columns={"index": "row_id"})
 
     # Optional outputs
@@ -272,6 +275,7 @@ def main():
             print(f"Skipping {k}")
             continue
 
+        ENFORCE_DAILY_PICK = False
         out = build_dataset_with_features(
             data_dir=data_dir_k,
             glob_pat=glob_pat,
@@ -280,10 +284,11 @@ def main():
             gex_target_time=gex_target_time_str,
             vix_csv=VIX_CSV,
             px_base_dir=PX_BASE_DIR,
-            enforce_daily_pick=True,
+            enforce_daily_pick=ENFORCE_DAILY_PICK,
             gex_filter_missing=gex_filter_missing,
             out_dir=out_dir,
             basic_csv_name=basic_csv,
+            filter_func = filter_by_dte,
         )
         print(json.dumps(out.report, indent=2))
         date_str = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
