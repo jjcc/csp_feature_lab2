@@ -1,3 +1,4 @@
+import os
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
@@ -29,6 +30,8 @@ class GroupedStockUpdater:
             symbols: List of stock symbols to update
             target_end_date: Target end date (default: yesterday)
         """
+        from service.data_prepare import _load_cached_price_data
+        from service.env_config import getenv
         if target_end_date is None:
             target_end_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         # Add 1 day to end_date for yfinance API call
@@ -79,15 +82,23 @@ class GroupedStockUpdater:
                       f"({end_date} -> {target_end_date})")
                 
                 #self._download_and_append(syms, start_date, target_end_date, end_date)
-                self._download_and_append(syms, start_date, yf_end_date, end_date)
+                prices = self._download_and_append(syms, start_date, yf_end_date, end_date)
+                price_info.update(prices)
                 total_updated += len(syms)
+        if groups['current']:
+            out_dir = getenv("COMMON_OUTPUT_DIR", "./output")
+            cache_dir = os.path.join(out_dir, "price_cache")
+            for s in groups['current']:
+                price_df, _ = _load_cached_price_data(cache_dir, s)
+                price_info[s] = price_df
+            total_updated += len(groups['current'])
         
         print(f"\n=== Complete ===")
         print(f"Total new: {total_new}")
         print(f"Total updated: {total_updated}")
         print(f"Already current: {len(groups['current'])}")
         
-        return total_new, total_updated
+        return total_new, total_updated , price_info
     
     def _categorize_symbols(self, symbols, target_end_date):
         """

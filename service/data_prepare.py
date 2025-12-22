@@ -77,6 +77,8 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
     prices = {}
     missing = []
     for s in syms:
+        if '.' in s: # convert dot to hyphen for yfinance, like BRK.B to BRK-B
+            s = s.replace('.', '-')
         if s in missing_stocks:
             print(f"[INFO] Skipping known stock missing in yfinance: {s}")
             continue
@@ -90,6 +92,9 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
             prices[s] = price_df
             continue
         if price_df is not None and (price_df.index.min() <= start_dt) and (price_df.index.max() >= end_dt):
+            # convert the '-' back to '.' for BRK.B
+            if '-' in s:
+                s = s.replace('-', '.')
             prices[s] = price_df
         else:
             missing.append(s)
@@ -207,6 +212,9 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
         if f.exists():
             #df = pd.read_csv(f)
             df = pd.read_parquet(f)
+            if df.columns.nlevels > 1:
+                # MultiIndex columns from yfinance
+                df = df[symbol] # Extract symbol columns, drop MultiIndex
             # Check if index is already datetime, otherwise look for Date/date columns
             if pd.api.types.is_datetime64_any_dtype(df.index):
                 df = df.sort_index()
