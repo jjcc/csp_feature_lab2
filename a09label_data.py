@@ -6,6 +6,7 @@ There are two modes:
  
 The cutoff dates for labeling are read from the common configs.
 """
+import json
 import os
 import numpy as np
 import pandas as pd
@@ -97,6 +98,10 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
         session = resolve_last_trading_session(expiry_date)
         sym = str(r["baseSymbol"]).upper()
         price_df = preload_closes.get(sym)
+        if price_df is not None and price_df.columns.nlevels > 1:
+            # MultiIndex 
+            price_df = price_df[sym] # Extract symbol columns, drop MultiIndex
+
         return get_close_on_session(price_df, session, use_unadjusted=True)
 
     df['expiry_close'] = df.apply(expiry_close_from_cache, axis=1)
@@ -154,9 +159,6 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 def label_csv_file(raw, output_csv, cut_off_date=None):
     raw["expirationDate"] = pd.to_datetime(raw["expirationDate"], errors="coerce")
     raw_copy = raw.copy()
-    #cut_off_date = "2025-08-08"
-    #cut_off_date = "2025-09-06"
-    #cut_off_date = "2025-09-11" # the 3rd folder in "unprocessed3"
     cut_off_date = pd.to_datetime(cut_off_date).normalize()
     batch_size = int(getenv("DATA_BATCH_SIZE", "30"))
     #processed_csv = getenv("BASIC_CSV", "labeled_trades_normal.csv")
@@ -242,9 +244,20 @@ def label_multiple_single_dataset():
     files = [f for f in os.listdir(input_dir) if f.startswith("trades_with_gex") and f.endswith(".csv")]
     files.sort()
     for f in files:
+        if 'orig' in f:
+            continue # skip for investigation
         fpath = os.path.join(input_dir, f)
         print(f"Processing file: {fpath}")
         df = pd.read_csv(fpath, index_col="row_id")
+        # remove the known missing stocks
+        with open("data/missing_stocks.json", "r") as fp:
+            missing_stocks = json.load(fp)
+        df = df[~df['baseSymbol'].isin(missing_stocks)].copy()
+        # remove other stocks need to be excluded
+        with open("data/exclude_stocks.json", "r") as fp:
+            exclude_dict = json.load(fp)
+        exclude_stocks = list(exclude_dict.keys())
+        df = df[~df['baseSymbol'].isin(exclude_stocks)].copy()
 
         # get the cutoff date from the config
         last_tag = get_tag(f, merged = False)
