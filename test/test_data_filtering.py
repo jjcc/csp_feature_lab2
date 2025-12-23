@@ -11,7 +11,8 @@ The strategies to handle this issue include:
 2. Combine DTE with close to certain time (e.g., 11:00) to make contract unique
 3. Keep only the first trade entry for each contract'''
 
-DATA_FOLDER = "output/data_prep"
+OUTPUT_FOLDER = "output"
+DATA_FOLDER = f"{OUTPUT_FOLDER}/data_prep"
 
 
 from datetime import time as dtime
@@ -129,6 +130,23 @@ class TestDataFiltering(unittest.TestCase):
         print(f"Data dir: {data_dir}, Basic CSV: {basic_csv}")
         print(f"Output dir: {output_dir}, Output CSV: {output_csv}")
 
+
+    def test_filter_earning_proximity(self):
+        from service.nasdaq_earnings import add_earnings_proximity
+        file1 = "labeled_trades_with_gex_macro_f_1027.csv"
+        file1 = f"{OUTPUT_FOLDER}/data_labeled/{file1}"
+        df_opt = pd.read_csv(file1)
+        df_opt = df_opt[df_opt['won'] == False]
+
+        df_earning = pd.read_csv("data/earnings_surprise_f.csv")
+
+        df_opt = add_earnings_proximity(df_opt, df_earning)
+
+        df_close_to_earnings = df_opt[df_opt['days_to_nearest_earnings'].abs() <= 7]
+        print(f"Filtered df shape (close to earnings within 7 days): {df_close_to_earnings.shape}")
+
+
+        print(f"Original df shape: {df_opt.shape}")
 
 
 if __name__ == '__main__':
