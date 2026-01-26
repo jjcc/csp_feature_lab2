@@ -1,0 +1,18 @@
+# Required: identify yourself to the SEC
+user_agent: "Jay Chen jchen@apption.com"
+
+# Input tickers
+tickers_file: "output/data_prep/corp_events/symbols_in_option_data_a.txt"
+
+# Date window (inclusive)
+date_range:
+  start: "2025-04-25"
+  end: "2025-08-08"
+
+# Output
+output_csv: "output/data_prep/corp_events/events_apr25_aug08.csv"
+
+# Behavior
+include_8k: true     # true = include 8-K filings (noisier)
+sleep_seconds: 0.3    # be polite to SEC
+cache_dir: "output/data_prep/.edgar_cache"
