@@ -167,7 +167,7 @@ class TestLoadSymbolPrices(unittest.TestCase):
     
 
     def test_verify_cal_earning(self):
-        symbols = ["NVDA"]
+        symbols = ["FI","BMNR"]
         earnings_calendar = collect_earnings(symbols)
         assert not earnings_calendar.empty
         print(earnings_calendar)

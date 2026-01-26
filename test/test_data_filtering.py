@@ -133,20 +133,32 @@ class TestDataFiltering(unittest.TestCase):
 
     def test_filter_earning_proximity(self):
         from service.nasdaq_earnings import add_earnings_proximity
-        file1 = "labeled_trades_with_gex_macro_f_1027.csv"
+        #file1 = "labeled_trades_with_gex_macro_f_1027.csv"
+        file1 = "labeled_trades_with_gex_macro_orig.csv"
         file1 = f"{OUTPUT_FOLDER}/data_labeled/{file1}"
         df_opt = pd.read_csv(file1)
         df_opt = df_opt[df_opt['won'] == False]
 
-        df_earning = pd.read_csv("data/earnings_surprise_f.csv")
+        df_earning = pd.read_csv("data/earnings_surprise_orig.csv")
 
         df_opt = add_earnings_proximity(df_opt, df_earning)
 
         df_close_to_earnings = df_opt[df_opt['days_to_nearest_earnings'].abs() <= 7]
         print(f"Filtered df shape (close to earnings within 7 days): {df_close_to_earnings.shape}")
 
-
         print(f"Original df shape: {df_opt.shape}")
+        symbols = df_close_to_earnings['baseSymbol'].unique()
+        print(f"Symbols close to earnings: {symbols}")
+        
+    
+    def test_get_lose_symbols(self):
+        file1 = "labeled_trades_with_gex_macro_orig.csv"
+        file1 = f"{OUTPUT_FOLDER}/data_labeled/{file1}"
+        df = pd.read_csv(file1)
+        df = df[df['won'] == False]
+        lose_symboles = df['baseSymbol'].unique()
+        print(f"Lose symbols: {lose_symboles}")
+
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import os
 import unittest
 import pandas as pd
+from service.data_prepare import _load_cached_price_data
 from service.stock_data_manager2 import GroupedStockUpdater
 
 class TestPriceData(unittest.TestCase):
@@ -123,6 +124,30 @@ class TestPriceData(unittest.TestCase):
         df.to_parquet("data/wolf/WOLF.parquet")
 
         print(df.head())
+    
+    def test_get_price(self):
+        cache_dir ="output/price_cache"
+        #symbol = "GLXY"
+        symbol = "BMNR"
+        date = "2025-09-29"
+        price_df, _ = _load_cached_price_data(cache_dir, symbol)
+
+        print(f"Price of {symbol} on {date} is {price_df.loc[date]}")
+
+    def test_direct_download_price(self):
+        import yfinance as yf
+        cache_dir ="output/price_cache"
+        #symbol = "GLXY"
+        symbols = ["BMNR", "BRK-B", "CRCL", "GLXY"]
+        date = "2025-09-29"
+        start_dt = pd.to_datetime("2025-04-13")
+        end_dt = pd.to_datetime("2025-09-30")
+        df = yf.download(symbols, start=start_dt.date(), end=(end_dt + pd.Timedelta(days=1)).date())
+        for symbol in symbols:
+            df_symbol = df.xs(symbol, level=1, axis=1)
+            print(f"Price of {symbol} on {date} is {df_symbol['Close'].loc[date]}")
+
+        #print(f"Price of {symbols} on {date} is {df.loc[date]}")
 
 if __name__ == '__main__':
     unittest.main()
