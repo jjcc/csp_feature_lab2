@@ -13,6 +13,9 @@ date_range:
 output_csv: "output/data_prep/corp_events/events_apr25_aug08.csv"
 
 # Behavior
-include_8k: true     # true = include 8-K filings (noisier)
 sleep_seconds: 0.3    # be polite to SEC
 cache_dir: "output/data_prep/.edgar_cache"
+
+
+# Safety valve: max number of 8-K primary docs fetched per ticker (in-range)
+max_8k_fetch_per_ticker: 50
