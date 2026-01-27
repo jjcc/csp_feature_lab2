@@ -36,6 +36,11 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 import yaml
+import html
+
+SPACE_ENTITIES_RE = re.compile(r"&(?:nbsp|thinsp|ensp|emsp);|&#(?:160|8201|8194|8195);", re.IGNORECASE)
+
+
 
 SEC_DATA_BASE = "https://data.sec.gov"
 TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -55,7 +60,7 @@ POS_PERIOD = re.compile(
 )
 
 POS_METRICS = re.compile(
-    r"\b(eps|earnings\s+per\s+share|net\s+(income|loss)|revenue|operating\s+(income|loss)|adjusted\s+ebitda)\b",
+    r"\b(eps|earnings\b|earnings\s+per\s+share|net\s+(income|loss)|revenue|operating\s+(income|loss)|adjusted\s+ebitda)\b",
     re.IGNORECASE,
 )
 
@@ -94,6 +99,15 @@ class FilingEvent:
     filing_url: str
     match_rule: str  # which heuristic matched
 
+
+def normalize_filing_text(text: str) -> str:
+    # Decode entities like &amp; etc.
+    t = html.unescape(text)
+    # Replace common spacing entities with a real space (covers when unescape doesn't)
+    t = SPACE_ENTITIES_RE.sub(" ", t)
+    # Collapse whitespace
+    t = re.sub(r"\s+", " ", t)
+    return t
 
 def iso_date(s: str) -> dt.date:
     return dt.datetime.strptime(s, "%Y-%m-%d").date()
@@ -301,6 +315,14 @@ def write_csv(events: List[FilingEvent], out_path: str) -> None:
                 e.match_rule,
             ])
 
+TICKER_MAP = { "AMBC":"OSG", "ZI":"GTM", "BTCM":"SLAI", "BYON":"BBBY", "FI":"FISV" ,"BRK.B":"BRK-B"}
+TICKER_REMOVE = ["PARA","VRNA","FL","LAZR"]
+
+def map_ticker(ticker: str) -> Optional[str]:
+    t = ticker.upper().strip()
+    if t in TICKER_REMOVE:
+        return None
+    return TICKER_MAP.get(t, t)
 
 def main() -> None:
     cfg = load_config("corp_action_config.yaml")
@@ -324,6 +346,7 @@ def main() -> None:
     tickers = read_tickers(tickers_file)
     # get only first 20 for testing
     #tickers = tickers[:20]
+    special_tickers = list(TICKER_MAP.keys()) + TICKER_REMOVE
 
     if not tickers:
         raise SystemExit("No tickers found. Put tickers in tickers_file.")
@@ -346,6 +369,13 @@ def main() -> None:
 
     count = 0
     for t in tickers:
+        if t in special_tickers:
+            mapped = map_ticker(t)
+            if not mapped:
+                print(f"[INFO] Skipping ticker {t} per removal list.")
+                continue
+            print(f"[INFO] Mapping ticker {t} -> {mapped}")
+            t = mapped
         cik10 = t2c.get(t)
         if not cik10:
             missing.append(t)
@@ -372,6 +402,7 @@ def main() -> None:
                 )
 
                 text = fetch_url_text(filing_url, headers=headers, cache_path=cache_path, sleep_s=sleep_s)
+                text = normalize_filing_text(text)
                 rule = looks_like_item_202(text)
                 if not rule:
                     continue
