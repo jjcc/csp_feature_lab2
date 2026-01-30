@@ -3,13 +3,19 @@ Label option trade dataset with win/loss based on expiry prices.
 There are two modes:
  1) single dataset labeling: label a single prepared dataset CSV file
  2) merged dataset labeling: label all merged datasets in the data_merged folder
- 
+
 The cutoff dates for labeling are read from the common configs.
 """
 import json
 import os
 import numpy as np
 import pandas as pd
+from pathlib import Path
+
+# Project root for absolute paths
+PROJECT_ROOT = Path(__file__).parent
+MISSING_STOCKS_PATH = PROJECT_ROOT / "data" / "missing_stocks.json"
+EXCLUDE_STOCKS_PATH = PROJECT_ROOT / "data" / "exclude_stocks.json"
 
 try:
     import exchange_calendars as xcals
@@ -61,21 +67,27 @@ def get_close_on_session(price_df, session_date, use_unadjusted=True):
 def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = None) -> pd.DataFrame:
     """
     Prepare labeled dataset for modeling.
-    Assumes columns (case-sensitive): 
-      baseSymbol, expirationDate, strike,  delta, moneyness, impliedVolatilityRank1y, 
+    Assumes columns (case-sensitive):
+      baseSymbol, expirationDate, strike,  delta, moneyness, impliedVolatilityRank1y,
       potentialReturn, potentialReturnAnnual, breakEvenProbability, percentToBreakEvenBid,
       openInterest, volume, tradeTime, underlyingLastPrice
-    Missing columns are tolerated and filled with NaN.
+    Missing optional columns are filled with NaN.
     """
     df = raw.copy()
-    # Standardize expected columns
-    expected_cols = [
-        "baseSymbol","expirationDate","strike","delta","moneyness",
-        "impliedVolatilityRank1y","potentialReturn","potentialReturnAnnual",
-        "breakEvenProbability","percentToBreakEvenBid","openInterest","volume",
-        "tradeTime","underlyingLastPrice","__source_file"
+
+    # Validate required columns exist
+    required_cols = ["baseSymbol", "expirationDate", "strike", "tradeTime", "underlyingLastPrice"]
+    missing_required = [c for c in required_cols if c not in df.columns]
+    if missing_required:
+        raise ValueError(f"Missing required columns: {missing_required}. Cannot proceed with labeling.")
+
+    # Standardize expected columns (optional ones can be filled with NaN)
+    optional_cols = [
+        "delta", "moneyness", "impliedVolatilityRank1y", "potentialReturn",
+        "potentialReturnAnnual", "breakEvenProbability", "percentToBreakEvenBid",
+        "openInterest", "volume", "__source_file"
     ]
-    for c in expected_cols:
+    for c in optional_cols:
         if c not in df.columns:
             df[c] = np.nan
 
@@ -244,26 +256,56 @@ def label_multiple_single_dataset():
     files = [f for f in os.listdir(input_dir) if f.startswith("trades_with_gex") and f.endswith(".csv")]
     files.sort()
     for f in files:
-        if 'orig' in f:
+        #if '1027' not in f:
+        if 'orig' not in f:
             continue # skip for investigation
         fpath = os.path.join(input_dir, f)
         print(f"Processing file: {fpath}")
         df = pd.read_csv(fpath, index_col="row_id")
         # remove the known missing stocks
-        with open("data/missing_stocks.json", "r") as fp:
+        with open(MISSING_STOCKS_PATH, "r") as fp:
             missing_stocks = json.load(fp)
         df = df[~df['baseSymbol'].isin(missing_stocks)].copy()
         # remove other stocks need to be excluded
-        with open("data/exclude_stocks.json", "r") as fp:
+        with open(EXCLUDE_STOCKS_PATH, "r") as fp:
             exclude_dict = json.load(fp)
+        if '1027' in f:
+            more_exclude = ['ABR', 'ACHR', 'ADM', 'AES', 'AFRM', 'AG', 'AMAT', 'AMC', 'AMD',
+                'ANET', 'ARM', 'ASTS', 'BA', 'BBAI', 'BITF', 'BTBT', 'CAR', 'CAVA',
+                'CCJ', 'CELH', 'CIFR', 'CLOV', 'CMCSA', 'CMG', 'COIN', 'CRWV',
+                'CSCO', 'CVNA', 'CVS', 'CZR', 'DASH', 'DDD', 'DKNG', 'DNUT',
+                'DUOL', 'ENPH', 'ENVX', 'ETSY', 'FIG', 'FI', 'HIMS', 'HIVE',
+                'HOOD', 'HUT', 'IREN', 'JBLU', 'JOBY', 'KHC', 'KVUE', 'LAES',
+                'LUNR', 'MARA', 'MCHP', 'MDLZ', 'MOS', 'MO', 'MP', 'MSFT', 'MSTR',
+                'NBIS', 'NCLH', 'NEE', 'NVO', 'NXPI', 'OKLO', 'ONDS', 'ON', 'OPEN',
+                'OSCR', 'PCT', 'PINS', 'PLTR', 'POET', 'PTON', 'PYPL', 'QBTS',
+                'QCOM', 'QSI', 'QUBT', 'RBLX', 'RCAT', 'RDW', 'RGTI', 'RIOT',
+                'RKLB', 'RKT', 'RXRX', 'SBUX', 'SERV', 'SG', 'SHOP', 'SMR', 'SOFI',
+                'SOUN', 'TEM', 'UBER', 'UNH', 'UPST', 'USAR', 'UUUU', 'VFC', 'VST',
+                'V', 'WULF', 'XYZ', 'ZETA'] 
+        if 'orig' in f:
+            more_exclude =['ABR' 'ACHR' 'ADBE' 'AG' 'AMAT' 'AMD' 'AMZN' 'APLD' 'ARM' 'ASTS' 'BABA'
+                'BA' 'BIDU' 'BYND' 'CAG' 'CAR' 'CCJ' 'CELH' 'CHWY' 'CIFR' 'CLF' 'CLSK'
+                'CMCSA' 'CMG' 'COIN' 'CORZ' 'CRM' 'CVNA' 'DDD' 'DECK' 'DJT' 'DNUT' 'DOW'
+                'ENPH' 'GLXY' 'HIMS' 'HOOD' 'INTC' 'JBLU' 'JD' 'JOBY' 'KHC' 'LUNR' 'LUV'
+                'MARA' 'MCHP' 'MOS' 'MSTR' 'NEE' 'NKE' 'NVDA' 'NVO' 'OKLO' 'ON' 'OPEN'
+                'OSCR' 'OXY' 'PINS' 'PLTR' 'PM' 'PYPL' 'QBTS' 'QCOM' 'RBLX' 'RGTI' 'RIOT'
+                'RKLB' 'RKT' 'RUM' 'RXRX' 'SBUX' 'SERV' 'SG' 'SHOP' 'SMR' 'SOFI' 'SOUN'
+                'TDOC' 'TEM' 'TGT' 'TSLA' 'TXN' 'UBER' 'UNH' 'UPST' 'UUUU' 'VFC' 'V'
+                'WFC' 'WMT' 'WULF' 'XYZ']
         exclude_stocks = list(exclude_dict.keys())
+        exclude_stocks.extend(more_exclude)
         df = df[~df['baseSymbol'].isin(exclude_stocks)].copy()
+
+        if '1027' in f:
+            exclude = ['NVTS','CGM','META']
+            df = df[~df['baseSymbol'].isin(exclude)].copy()
 
         # get the cutoff date from the config
         last_tag = get_tag(f, merged = False)
         cutoff_date = cutoff_dates_by_tag.get(last_tag, None)
         print(f"  Cutoff date for tag {last_tag}: {cutoff_date}")
-        output_csv = f"labeled_{f}"
+        output_csv = f"labeled_{f}_filtered.csv"
         label_csv_file(df, output_csv, cutoff_date)
 
 def lablel_merge_dataset():

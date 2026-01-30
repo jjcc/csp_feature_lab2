@@ -125,6 +125,14 @@ def pick_threshold_from_coverage(proba: np.ndarray, coverage: float) -> float:
 def load_and_preprocess_data(config: ScoringConfig) -> pd.DataFrame:
     """Load and preprocess input data."""
     df = pd.read_csv(config.csv_in)
+
+    # Validate required columns exist
+    required_cols = ["symbol", "tradeTime"]
+    missing_cols = [c for c in required_cols if c not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns in input CSV: {missing_cols}. "
+                        f"Available columns: {list(df.columns)}")
+
     non_labelled = False # assume we have labels
     if "label" not in config.csv_in:
         non_labelled = True

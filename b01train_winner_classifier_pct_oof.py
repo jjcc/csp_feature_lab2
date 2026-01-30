@@ -144,7 +144,7 @@ class WinnerClassifierConfig:
         """Parse all configuration from environment variables."""
         # I/O paths
         self.output_dir = getenv("WINNER_OUTPUT_DIR")
-        self.input_csv = getenv("COMMON_OUTPUT_DIR") + "/" + getenv("COMMON_OUTPUT_CSV")
+        self.input_csv = getenv("COMMON_OUTPUT_DIR") + "/" +getenv("COMMON_LABELED") + "/" + getenv("COMMON_OUTPUT_CSV")
         self.model_name = getenv("WINNER_MODEL_NAME", "winner_classifier_model.pkl")
 
         # Features
@@ -253,9 +253,8 @@ class DataPreprocessor:
         """Main data preparation pipeline."""
         # Add preprocessing if needed
         df = add_dte_and_normalized_returns(df)
-
         # Shuffle data
-        df = df.sample(frac=1, random_state=self.config.random_state).reset_index(drop=True)
+        # df = df.sample(frac=1, random_state=self.config.random_state).reset_index(drop=True)
 
         # Build binary label
         y = build_label(df, self.config.train_target)
@@ -541,21 +540,40 @@ def main():
     """Main training function with refactored structure."""
     # Initialize components
     config = WinnerClassifierConfig()
-    ensure_dir(config.output_dir)
 
     preprocessor = DataPreprocessor(config)
     cv_handler = CrossValidator(config, preprocessor)
 
     # Load and prepare data
+    input_csv = config.input_csv
     df = pd.read_csv(config.input_csv)
+
+    # Validate required columns exist
+    required_cols = ["captureTime", "symbol", config.train_target]
+    missing_cols = [c for c in required_cols if c not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns in input CSV: {missing_cols}. "
+                        f"Available columns: {list(df.columns)}")
+
     # alternative
     #input_csv1 = "output/labeled_trades_tr_t1_merged.csv"
     #input_csv2 = "output/labeled_trades_tr_t1_merged_minus.csv"
-    input_csv3 = "output/labeled_trades_tr_A_B_merged.csv"
+    #input_csv3 = "output/labeled_trades_tr_A_B_merged.csv"
+    #input_csv = "output/data_labeled/labeled_merged_with_gex_macro_origabcdef.csv"
+    tag = input_csv.split("_")[-1].split(".")[0]
+    config.output_dir = config.output_dir +  f"{tag}"
+    ensure_dir(config.output_dir)
+    config.model_name = f"winner_classifier_model_{tag}"
+
 
     #df = pd.read_csv(input_csv1)
     #df = pd.read_csv(input_csv2)
-    df = pd.read_csv(input_csv3)
+    #df = pd.read_csv(input_csv3)
+    df = pd.read_csv(input_csv)
+    df = df.sort_values(
+            ["captureTime", "symbol"],  # or symbol as tie-breaker
+            kind="mergesort"
+        ).reset_index(drop=True)
 
     df, y, features, weights, has_time = preprocessor.prepare_data(df)
 

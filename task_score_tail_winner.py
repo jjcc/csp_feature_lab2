@@ -6,6 +6,7 @@ This is a converted version of the test `test_score_tail_winner_classifier` from
 """
 from glob import glob
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -14,15 +15,16 @@ from service.winner_scoring import load_winner_model, score_winner_data, apply_w
 from service.production_data import add_features, parse_target_time
 from service.env_config import getenv
 
+# Project root for absolute paths
+PROJECT_ROOT = Path(__file__).parent
+TAIL_MODEL_IN = PROJECT_ROOT / "output" / "tails_train" / "v6b_ne" / "tail_model_gex_v6b_ne_cut05.pkl"
+WINNER_MODEL_IN = PROJECT_ROOT / "output" / "winner_train" / "v7_oof_ne_ts_w_lgbm_tr_ts" / "winner_classifier_v7_lgbm.pkl"
+OPTION_DATA_DIR = PROJECT_ROOT / "option" / "put"
+PROCESS_LOG_PATH = PROJECT_ROOT / "log" / "processed.log"
+
 load_dotenv()
 
-#TAIL_MODEL_IN = "models/tail_model_gex_v2_cut05.pkl"
-TAIL_MODEL_IN = "output/tails_train/v6b_ne/tail_model_gex_v6b_ne_cut05.pkl"
 TAIL_KEEP_PROBA_COL = "tail_proba"
-#WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_straited_w_lgbm/winner_classifier_v6_oof_ne_w_lgbm.pkl"
-#WINNER_MODEL_IN = "output/winner_train/external/winner_classifier_v6_oof_ne_w_lgbm.pkl"
-#WINNER_MODEL_IN = "output/winner_train/v6_oof_ne_ts_w_lgbm_rfctr/winner_classifier_v6_oof_ne_w_lgbm.pkl"
-WINNER_MODEL_IN = "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts/winner_classifier_v7_lgbm.pkl"
 WINNER_PROBA_COL = "winner_proba"
 
 PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip()  
@@ -30,16 +32,15 @@ PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip()
 
 
 def get_merge_params(ignore_log=False):
-    option_data_dir = "option/put"
     glob_pat = f"coveredPut_*.csv"
     # get the latest file
-    latest_file_with_path = max(glob(os.path.join(option_data_dir, glob_pat)), key=os.path.getctime)
+    latest_file_with_path = max(glob(str(OPTION_DATA_DIR / glob_pat)), key=os.path.getctime)
     latest_file = os.path.basename(latest_file_with_path)
-    process_log = "log/processed.log"
     # read processed log (create if missing)
-    if not os.path.exists(process_log):
-        open(process_log, "a").close()
-    with open(process_log, "r") as f:
+    if not PROCESS_LOG_PATH.exists():
+        PROCESS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PROCESS_LOG_PATH.touch()
+    with open(PROCESS_LOG_PATH, "r") as f:
         lines = f.readlines()
     files = [line.strip() for line in lines if line.strip()]
     if not ignore_log and latest_file in files:
@@ -61,8 +62,8 @@ def main(Test=False):
 
     option_file = latest_file_with_path
     if Test:
-        #option_file = "option/put/unprocessed/coveredPut_2025-08-08_11_00.csv"
-        option_file = "option/put/coveredPut_2025-09-29_15_00.csv"
+        #option_file = str(OPTION_DATA_DIR / "unprocessed" / "coveredPut_2025-08-08_11_00.csv")
+        option_file = str(OPTION_DATA_DIR / "coveredPut_2025-09-29_15_00.csv")
         latest_file_time = option_file.split("_")[-2:]
         latest_file_time = ":".join(latest_file_time).replace(".csv", "")
         target_t = parse_target_time(latest_file_time)
@@ -73,9 +74,9 @@ def main(Test=False):
     hour, minute = option_file.replace(".csv", "").split("_")[-2:]
     target_date = option_file.split("_")[1]
     time_str = f"{hour}_{minute}"
-    out_dir = "prod/output"
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = f"{out_dir}/scored_tail_winner_lgbm_{target_date}_{time_str}.csv"
+    out_dir = PROJECT_ROOT / "prod" / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"scored_tail_winner_lgbm_{target_date}_{time_str}.csv"
     if Test:
         out_path = f"{out_dir}/scored_tail_winner_lgbm_{target_date}_{time_str}_test2.csv"
 

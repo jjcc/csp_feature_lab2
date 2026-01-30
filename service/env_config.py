@@ -40,12 +40,15 @@ class ConfigLoader:
             yaml_config = self._load_yaml_config()
             self._config = self._flatten_config(yaml_config)
 
-        #if self._env is None:
-        #    self._env = self._load_env_config()
+        # Try YAML config first
+        value = self._config.get(key)
 
-        # Try YAML config first, then env variables, then default
-        #return self._config.get(key, self._env.get(key, default))
-        return self._config.get(key, None)
+        # If not found and fallback enabled, try environment variables
+        if value is None and self.fallback_to_env:
+            value = os.getenv(key)
+
+        # Return value if found, otherwise return default
+        return value if value is not None else default
 
     def get_section(self, section_name):
         """Get an entire configuration section."""

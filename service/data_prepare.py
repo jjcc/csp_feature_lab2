@@ -4,10 +4,15 @@ import os
 import numpy as np
 import pandas as pd
 from service.stock_data_manager2 import GroupedStockUpdater
-from service.utils import download_prices_batched 
+from service.utils import download_prices_batched
 import numpy as np
 from pathlib import Path
 import yfinance as yf
+
+# Project root for absolute paths
+PROJECT_ROOT = Path(__file__).parent.parent
+MISSING_STOCKS_PATH = PROJECT_ROOT / "data" / "missing_stocks.json"
+WOLF_PRICE_PATH = PROJECT_ROOT / "data" / "wolf" / "WOLF.parquet"
 
 COMMON_START_DATE = "2025-04-01" # 2025-04-25  minus 24 days
 
@@ -46,7 +51,7 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
     cache_dir = os.path.join(out_dir, "price_cache")
     os.makedirs(cache_dir, exist_ok=True)
 
-    with open("data/missing_stocks.json", "r") as f:
+    with open(MISSING_STOCKS_PATH, "r") as f:
         missing_stocks = json.load(f)
 
     # Determine symbols and window
@@ -86,7 +91,7 @@ def preload_prices_with_cache(syms,tt, ed, out_dir, batch_size=30, cut_off_date=
         if s == "WOLF":
             # Special case for WOLF
             if end_dt < pd.to_datetime("2025-09-27"):
-                df = pd.read_parquet("data/wolf/WOLF.parquet") # this is an old price which was overridden in yfinance
+                df = pd.read_parquet(WOLF_PRICE_PATH) # this is an old price which was overridden in yfinance
                 df.sort_index(inplace=True)
                 price_df = df
             prices[s] = price_df
@@ -230,6 +235,9 @@ def _load_symbol_prices(symbol, px_dir, start_date, end_date, use_yf=False):
                 #if  start_date >= df.index.min() and end_date - pd.Timedelta(days=1) <= df.index.max():
                 if len(df) > 0 :
                     close_col = "Close" if "Close" in df.columns else "close"
+                    if symbol == "NFLX":
+                        # special case for NFLX with duplicated index
+                        close_col = "Adj Close" if "Adj Close" in df.columns else close_col
                     return df.loc[start_date:end_date, close_col].rename("Close").astype(float)
                 else:
                     # update the price file by downloading from yf
