@@ -167,18 +167,19 @@ def find_nearest_events(
         nearest_event_type_after
     """
     out = trades_df.copy()
-    # Assume already sorted - don't re-sort to avoid breaking merge_asof
-    # out = out.sort_values(["_symbol", date_col], kind="mergesort")
+    out = out.sort_values(["_symbol", date_col], kind="mergesort").reset_index(drop=True)
 
     events_sorted = events_df.copy()
-    # events_sorted = events_df.sort_values(["_symbol", "_event_date"], kind="mergesort")
+    events_sorted = events_sorted.sort_values(["_symbol", "_event_date"], kind="mergesort").reset_index(drop=True)
 
     # Prepare event dataframes for merging
     events_before = events_sorted[["_symbol", "_event_date", "_event_type"]].copy()
     events_before.columns = ["_symbol", "event_before", "type_before"]
+    events_before = events_before.sort_values(["_symbol", "event_before"], kind="mergesort").reset_index(drop=True)
 
     events_after = events_sorted[["_symbol", "_event_date", "_event_type"]].copy()
     events_after.columns = ["_symbol", "event_after", "type_after"]
+    events_after = events_after.sort_values(["_symbol", "event_after"], kind="mergesort").reset_index(drop=True)
 
     # Find nearest event BEFORE the date
     prev_events = pd.merge_asof(
