@@ -74,7 +74,7 @@ python a02_filter_noisy_trades.py
 
 ```bash
 # Step 1: Collect corporate events
-python edga_events_scrap.py
+python a01_collect_corp_events.py
 # Output: output/data_prep/corp_events/events_apr25_aug08.csv
 
 # Step 2: Filter trades near events
@@ -82,7 +82,7 @@ python a02_filter_noisy_trades.py
 # Output: option/put/filtered/trades_filtered_orig.csv
 
 # Step 3: Continue with feature engineering
-python a03_build_dataset_with_features.py --input option/put/filtered/trades_filtered_orig.csv
+python a00build_dataset_with_features.py --input option/put/filtered/trades_filtered_orig.csv
 ```
 
 ## Output Files
@@ -194,12 +194,12 @@ a00_build_dataset → a09_label_data → b01_train_winner
 ### After a02 (New State)
 
 ```
-edga_events_scrap (a01) → a02_filter_noisy_trades → a00_build_dataset (rename to a03) → a09_label_data → b01_train_winner
+a01_collect_corp_events → a02_filter_noisy_trades → a00_build_dataset → a09_label_data → b01_train_winner
 ```
 
 ### Migration Path
 
-1. Run `edga_events_scrap.py` once to generate events CSV
+1. Run `a01_collect_corp_events.py` once to generate events CSV
 2. Test `a02_filter_noisy_trades.py` on a small dataset
 3. Review filter report - adjust windows if needed
 4. Apply to full dataset

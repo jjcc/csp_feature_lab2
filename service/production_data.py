@@ -64,7 +64,12 @@ def get_vix(today: datetime, target_date=None) -> pd.DataFrame:
             VIX_CSV = getenv("MACRO_VIX_CSV", "").strip() or None
             start_date = target_date - pd.Timedelta(days=1)
             end_date = target_date + pd.Timedelta(days=1)
-            st = pd.to_datetime(COMMON_START_DATE)
+            #TODO: use merge later
+            exist_vix = pd.read_csv(VIX_CSV, parse_dates=["Date"])
+            minimun_date = exist_vix["Date"].min()
+            st = minimun_date
+            st = pd.to_datetime(st)
+            #st = pd.to_datetime(COMMON_START_DATE)
             vix = _load_vix(VIX_CSV, st, end_date)
             vix_df = pd.DataFrame({"trade_date": vix.index, "VIX": vix.values})
             print(f"Target date {target_date} is not today {today.date()}, skip VIX fetch.")

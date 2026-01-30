@@ -95,27 +95,46 @@ def prep_tail_training_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return X
 
-def fill_features_with_training_medians(df: pd.DataFrame, feat_list: List[str]) -> pd.DataFrame:
+# Alias for backward compatibility
+prep_tail_training_derived = prep_tail_training_df
+
+def fill_features_with_training_medians(df: pd.DataFrame, feat_list: List[str], medians: Optional[Dict[str, float]] = None):
     """
     Reproduce train_tail_with_gex._fill_features for scoring:
     - Ensure all features exist
     - For 'gex_missing': fillna(1)
     - For all others: fillna(training_median)
-    """
-    medians_x = {}
-    X = df.copy()
-    for c in feat_list:
-        if c not in X.columns:
-            X[c] = np.nan
-        if c == "gex_missing":
-            X[c] = X[c].fillna(1)
-            medians_x[c] = 0.0
-        else:
-            medx = X[c].median(skipna=True)
-            medians_x[c] = float(medx) if pd.notna(medx) else 0.0
-            X[c] = X[c].fillna(medians_x[c])
 
-    return X[feat_list].astype(float), medians_x
+    If medians is None, computes them from df and returns (X, medians).
+    If medians is provided, uses them and returns X only.
+    """
+    X = df.copy()
+
+    if medians is None:
+        # Compute medians from data (training mode)
+        medians_x = {}
+        for c in feat_list:
+            if c not in X.columns:
+                X[c] = np.nan
+            if c == "gex_missing":
+                X[c] = X[c].fillna(1)
+                medians_x[c] = 0.0
+            else:
+                medx = X[c].median(skipna=True)
+                medians_x[c] = float(medx) if pd.notna(medx) else 0.0
+                X[c] = X[c].fillna(medians_x[c])
+        return X[feat_list].astype(float), medians_x
+    else:
+        # Use provided medians (scoring mode)
+        for c in feat_list:
+            if c not in X.columns:
+                X[c] = np.nan
+            if c == "gex_missing":
+                X[c] = X[c].fillna(1)
+            else:
+                med = float(medians.get(c, 0.0))
+                X[c] = pd.to_numeric(X[c], errors="coerce").fillna(med)
+        return X[feat_list].astype(float)
 
 
 def prep_winner_like_training(

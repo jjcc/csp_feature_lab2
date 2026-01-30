@@ -38,6 +38,9 @@ import requests
 import yaml
 import html
 
+# Import split detector
+from service.split_detector import fetch_splits_yfinance
+
 SPACE_ENTITIES_RE = re.compile(r"&(?:nbsp|thinsp|ensp|emsp);|&#(?:160|8201|8194|8195);", re.IGNORECASE)
 
 
@@ -98,6 +101,23 @@ class FilingEvent:
     primary_document: str
     filing_url: str
     match_rule: str  # which heuristic matched
+
+@dataclass
+class UnifiedEvent:
+    """Unified event structure for both earnings and splits"""
+    ticker: str
+    event_type: str  # "EARNINGS" or "SPLIT"
+    event_date: str
+    cik: str = ""
+    filing_date: str = ""
+    report_date: str = ""
+    accession: str = ""
+    primary_document: str = ""
+    filing_url: str = ""
+    match_rule: str = ""
+    split_ratio: str = ""
+    split_factor: float = 0.0
+    source: str = ""
 
 
 def normalize_filing_text(text: str) -> str:
@@ -287,32 +307,41 @@ def read_tickers(path: str) -> List[str]:
     return [t for t in toks if t]
 
 
-def write_csv(events: List[FilingEvent], out_path: str) -> None:
+def write_unified_csv(events: List[UnifiedEvent], out_path: str) -> None:
+    """Write unified CSV with both earnings and split events"""
     ensure_dir(os.path.dirname(out_path))
     with open(out_path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow([
             "ticker",
-            "cik",
             "event_type",
+            "event_date",
+            "cik",
             "filing_date",
             "report_date",
             "accession",
             "primary_document",
             "filing_url",
             "match_rule",
+            "split_ratio",
+            "split_factor",
+            "source",
         ])
-        for e in sorted(events, key=lambda x: (x.ticker, x.filing_date, x.accession)):
+        for e in sorted(events, key=lambda x: (x.ticker, x.event_date)):
             w.writerow([
                 e.ticker,
+                e.event_type,
+                e.event_date,
                 e.cik,
-                "EARNINGS_8K_ITEM_2_02",
                 e.filing_date,
                 e.report_date,
                 e.accession,
                 e.primary_document,
                 e.filing_url,
                 e.match_rule,
+                e.split_ratio,
+                e.split_factor,
+                e.source,
             ])
 
 TICKER_MAP = { "AMBC":"OSG", "ZI":"GTM", "BTCM":"SLAI", "BYON":"BBBY", "FI":"FISV" ,"BRK.B":"BRK-B"}
@@ -344,8 +373,10 @@ def main() -> None:
     cache_dir = cfg.get("cache_dir", ".edgar_cache")
     tickers_file = cfg.get("tickers_file", "tickers.txt")
     tickers = read_tickers(tickers_file)
-    # get only first 20 for testing
-    #tickers = tickers[:20]
+
+    # Check if splits collection is enabled
+    collect_splits = cfg.get("collect_splits", True)
+
     special_tickers = list(TICKER_MAP.keys()) + TICKER_REMOVE
 
     if not tickers:
@@ -353,7 +384,6 @@ def main() -> None:
 
     if end < start:
         raise SystemExit("date_range.end must be >= date_range.start")
-
 
     max_fetch = cfg.get("max_8k_fetch_per_ticker")
     max_fetch = int(max_fetch) if max_fetch is not None else 50
@@ -364,9 +394,11 @@ def main() -> None:
     start_time = time.time()
     t2c = build_ticker_to_cik(headers, cache_dir, sleep_s)
 
-    events: List[FilingEvent] = []
+    earnings_events: List[FilingEvent] = []
     missing: List[str] = []
 
+    # Collect earnings from EDGAR 8-K Item 2.02
+    print(f"[1/2] Collecting earnings events from EDGAR...")
     count = 0
     for t in tickers:
         if t in special_tickers:
@@ -407,7 +439,7 @@ def main() -> None:
                 if not rule:
                     continue
 
-                events.append(
+                earnings_events.append(
                     FilingEvent(
                         ticker=t,
                         cik=cik10,
@@ -425,14 +457,72 @@ def main() -> None:
         except Exception as e:
             print(f"[WARN] {t} CIK={cik10}: error: {e}")
         count += 1
-        if count % 5 == 0:
+        if count % 10 == 0:
             print(f"Processed {count}/{len(tickers)} tickers...")
 
-    elapsed = time.time() - start_time
-    print(f"Processed {len(tickers)} tickers in {elapsed:.1f}) seconds.")
-    write_csv(events, out_csv)
+    print(f"Found {len(earnings_events)} earnings events from EDGAR")
 
-    print(f"Saved {len(events)} earnings events → {out_csv}")
+    # Collect stock splits
+    split_events = []
+    if collect_splits:
+        print(f"\n[2/2] Collecting stock splits from yfinance...")
+        try:
+            split_df = fetch_splits_yfinance(
+                symbols=tickers,
+                date_range=(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')),
+                sleep_seconds=0.1
+            )
+            print(f"Found {len(split_df)} stock splits")
+
+            # Convert split DataFrame to UnifiedEvent format
+            for _, row in split_df.iterrows():
+                split_events.append({
+                    'ticker': row['symbol'],
+                    'event_date': row['date'],
+                    'split_factor': row['split_factor'],
+                    'split_ratio': row['split_ratio'],
+                })
+        except Exception as e:
+            print(f"[WARN] Split collection failed: {e}")
+
+    # Convert to unified format
+    unified_events = []
+
+    for e in earnings_events:
+        unified_events.append(UnifiedEvent(
+            ticker=e.ticker,
+            event_type="EARNINGS",
+            event_date=e.filing_date,
+            cik=e.cik,
+            filing_date=e.filing_date,
+            report_date=e.report_date,
+            accession=e.accession,
+            primary_document=e.primary_document,
+            filing_url=e.filing_url,
+            match_rule=e.match_rule,
+            source="edgar_8k"
+        ))
+
+    for s in split_events:
+        unified_events.append(UnifiedEvent(
+            ticker=s['ticker'],
+            event_type="SPLIT",
+            event_date=s['event_date'],
+            split_ratio=s['split_ratio'],
+            split_factor=s['split_factor'],
+            source="yfinance"
+        ))
+
+    elapsed = time.time() - start_time
+    print(f"\n=== Summary ===")
+    print(f"Processed {len(tickers)} tickers in {elapsed:.1f} seconds")
+    print(f"Earnings events: {len(earnings_events)}")
+    print(f"Split events: {len(split_events)}")
+    print(f"Total events: {len(unified_events)}")
+
+    write_unified_csv(unified_events, out_csv)
+    print(f"\nSaved {len(unified_events)} total events → {out_csv}")
+
     if missing:
         print(f"Tickers missing CIK mapping ({len(missing)}): {missing[:20]}")
 

@@ -3,7 +3,7 @@ import json
 import os
 import numpy as np
 import pandas as pd
-from service.stock_data_manager2 import GroupedStockUpdater
+from service.stock_data_manager import GroupedStockUpdater
 from service.utils import download_prices_batched
 import numpy as np
 from pathlib import Path

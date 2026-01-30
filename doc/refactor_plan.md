@@ -41,9 +41,9 @@ TAIL_MODEL_IN = "output/tails_train/v6b_ne/tail_model_gex_v6b_ne_cut05.pkl"
 ## 🟡 **Major Structural Issues**
 
 ### 5. **Pipeline Naming Confusion**
-- `edga_events_scrap.py` should be `a01_collect_corp_events.py` (documented as a01 but never renamed)
-- Both `a00build_dataset_with_features.py` and `a03merge_fundamentals_events.py` exist - unclear which is canonical
-- `b01train_winner_classifier_pct_oof_fix.py` vs original - which is current?
+- ✅ ~~`edga_events_scrap.py` should be `a01_collect_corp_events.py`~~ (COMPLETED 2026-01-30)
+- ✅ ~~Both `a00build_dataset_with_features.py` and `a03merge_fundamentals_events.py` exist~~ (COMPLETED 2026-01-30: deprecated a03/a07, kept a00)
+- ✅ ~~`b01train_winner_classifier_pct_oof_fix.py` vs original~~ (COMPLETED 2026-01-30: restored correct version)
 
 ### 6. **Dead Code**
 - `stock_data_manager.py` (5.3 KB) - never imported, replaced by `stock_data_manager2.py`
@@ -123,8 +123,8 @@ Raw CSP → (a01 edga_events) → Corp Events
 ```
 
 **Actual Problems:**
-1. **a01 Naming Mismatch** - Script is `edga_events_scrap.py` (no a## prefix)
-2. **a03 Confusion** - Both `a00build_dataset_with_features.py` and `a03merge_fundamentals_events.py` exist
+1. **a01 Naming Mismatch** - ✅ Script renamed to `a01_collect_corp_events.py` (COMPLETED 2026-01-30)
+2. **a03 Confusion** - ✅ Resolved (COMPLETED 2026-01-30): deprecated a03/a07, kept a00 as is
 3. **Path Construction** - Fragile string concatenation with `/`
 4. **Missing Validation** - No schema checks at pipeline boundaries
 5. **Cutoff Date Logic** - Duplicated across multiple files
@@ -211,8 +211,9 @@ except Exception:  # Too broad
 
 7. **Rename pipeline scripts for clarity**
    ```bash
-   mv edga_events_scrap.py a01_collect_corp_events.py
-   # Clarify a00 vs a03 - merge or make purpose explicit
+   # ✅ COMPLETED 2026-01-30
+   mv a01_collect_corp_events.py  # Previously edga_events_scrap.py
+   # Deprecated a03/a07, kept a00 as fundamental start point
    ```
 
 8. **Break up monolithic scripts**
@@ -367,7 +368,7 @@ csp_feature_lab2/
 
 ### Files to Rename
 
-1. `edga_events_scrap.py` → `a01_collect_corp_events.py`
+1. ✅ `a01_collect_corp_events.py` (COMPLETED 2026-01-30)
 2. `a00build_dataset_with_features.py` → `a03_build_features.py`
 3. `service/winner_scoring_refactor.py` → `service/winner_scoring.py`
 4. `service/stock_data_manager2.py` → `service/stock_data_manager.py`
