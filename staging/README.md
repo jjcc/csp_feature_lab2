@@ -4,6 +4,15 @@ This folder contains old model training and scoring scripts that are no longer a
 
 ## Moved: 2026-01-30
 
+### Deprecated Pipeline Scripts (January 2026)
+- `a03merge_fundamentals_events.py` - Earnings proximity features; not mature, will rewrite with better data sources
+
+### Dead Code / Replaced Modules (January 2026)
+- `stock_data_manager.py` - Old version, replaced by stock_data_manager2 (now stock_data_manager.py in service/)
+- `identity_cal.py` - IdentityCal class, only used by old meta models
+- `b01train_winner_classifier_pct_oof.py` - Old version of winner trainer, superseded by _fix version
+- `model_service.py` - Duplicate utilities, consolidated into service/utils.py
+
 ### Tail Risk Models (September 2025)
 - `train_tail_with_gex.py` - Train model to predict worst K% trades by PnL
 - `score_tail_with_gex.py` - Score new trades for tail risk
@@ -32,8 +41,7 @@ This folder contains old model training and scoring scripts that are no longer a
 ## Current Active Scripts (Root Directory)
 
 **Winner Classifier Only:**
-- `b01train_winner_classifier_pct_oof.py` - Main training script with OOF CV
-- `b01train_winner_classifier_pct_oof_fix.py` - Fix version with improvements
+- `b01train_winner_classifier_pct_oof.py` - Main training script with OOF CV (consolidated from _fix version)
 - `score_winner_classifier_env.py` - Score new candidates
 - `task_score_tail_winner.py` - Production scoring pipeline
 - `eval_binary_classifier_env.py` - Model evaluation metrics
