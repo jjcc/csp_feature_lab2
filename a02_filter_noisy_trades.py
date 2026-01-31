@@ -52,14 +52,25 @@ class FilterConfig:
 
 
 def load_config(config_path: str = "corp_action_config.yaml") -> FilterConfig:
-    """Load configuration from YAML file"""
+    """Load configuration from YAML file and config.yaml"""
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
+    # Load common settings from corp_action_config.yaml
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
 
-    # Parse exclusion windows
+    # Load dataset-specific settings from config.yaml
+    from service.env_config import config as env_config
+    dataset_cfg = env_config.get_active_dataset_config()
+
+    if not dataset_cfg:
+        raise SystemExit(
+            "No active dataset configuration found. "
+            "Set active_process_dataset in config.yaml (e.g., 'f', 'orig', etc.)"
+        )
+
+    # Parse exclusion windows from corp_action_config.yaml
     windows = {}
     exclusion_cfg = cfg.get("exclusion_windows", {})
 
@@ -71,16 +82,19 @@ def load_config(config_path: str = "corp_action_config.yaml") -> FilterConfig:
             days_after_expiry=settings.get("days_after_expiry", 0),
         )
 
+    # Build paths from dataset config
+    trades_input = os.path.join(dataset_cfg.get("data_dir", ""), dataset_cfg.get("data_basic_csv", ""))
+
     return FilterConfig(
-        trades_csv=cfg.get("trades_input_csv", ""),
-        events_csv=cfg.get("output_csv", ""),  # output from a01
-        output_csv=cfg.get("filtered_trades_csv", ""),
+        trades_csv=trades_input,
+        events_csv=dataset_cfg.get("events_output", ""),  # output from a01
+        output_csv=dataset_cfg.get("filtered_trades_csv", ""),
         exclusion_windows=windows,
         symbol_col=cfg.get("symbol_col", "baseSymbol"),
         trade_date_col=cfg.get("trade_date_col", "tradeTime"),
         expiry_col=cfg.get("expiry_col", "expirationDate"),
         keep_filtered_trades=cfg.get("keep_filtered_trades", False),
-        filtered_csv=cfg.get("filtered_out_csv", ""),
+        filtered_csv=dataset_cfg.get("filtered_out_csv", ""),
     )
 
 

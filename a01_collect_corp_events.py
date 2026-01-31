@@ -354,7 +354,18 @@ def map_ticker(ticker: str) -> Optional[str]:
     return TICKER_MAP.get(t, t)
 
 def main() -> None:
+    # Load common settings from corp_action_config.yaml
     cfg = load_config("corp_action_config.yaml")
+
+    # Load dataset-specific settings from config.yaml
+    from service.env_config import config as env_config
+    dataset_cfg = env_config.get_active_dataset_config()
+
+    if not dataset_cfg:
+        raise SystemExit(
+            "No active dataset configuration found. "
+            "Set active_process_dataset in config.yaml (e.g., 'f', 'orig', etc.)"
+        )
 
     user_agent = cfg.get("user_agent")
     if not user_agent or not isinstance(user_agent, str):
@@ -365,13 +376,15 @@ def main() -> None:
         "Accept-Encoding": "gzip, deflate",
         # Host is set per-request (data.sec.gov vs www.sec.gov)
     }
-    dr = cfg.get("date_range") or {}
 
-    start = iso_date(dr["start"])
-    end = iso_date(dr["end"])
+    # Get date range and paths from dataset config in config.yaml
+    start = iso_date(dataset_cfg.get("events_start_date"))
+    end = iso_date(dataset_cfg.get("events_end_date"))
+    tickers_file = dataset_cfg.get("tickers_file", "tickers.txt")
+
+    # Common settings from corp_action_config.yaml
     sleep_s = float(cfg.get("sleep_seconds", 0.3))
     cache_dir = cfg.get("cache_dir", ".edgar_cache")
-    tickers_file = cfg.get("tickers_file", "tickers.txt")
     tickers = read_tickers(tickers_file)
 
     # Check if splits collection is enabled
@@ -388,7 +401,8 @@ def main() -> None:
     max_fetch = cfg.get("max_8k_fetch_per_ticker")
     max_fetch = int(max_fetch) if max_fetch is not None else 50
 
-    out_csv = cfg.get("output_csv", "earnings_8k_item202.csv")
+    # Output path from dataset config in config.yaml
+    out_csv = dataset_cfg.get("events_output", "earnings_8k_item202.csv")
 
     # Build mapping
     start_time = time.time()
