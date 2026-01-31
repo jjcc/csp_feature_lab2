@@ -239,13 +239,63 @@ def build_dataset_with_feat(
     return out.df
 
 
+def extract_and_write_symbols(df: pd.DataFrame, output_path: str) -> int:
+    """Extract unique symbols from dataframe and write to file.
+
+    Args:
+        df: DataFrame with 'baseSymbol' column
+        output_path: Path to write symbols file
+
+    Returns:
+        Number of unique symbols written
+    """
+    if 'baseSymbol' not in df.columns:
+        raise ValueError("DataFrame must have 'baseSymbol' column")
+
+    symbols = sorted(df['baseSymbol'].dropna().unique())
+
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # Write symbols to file (one per line)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(symbols))
+
+    print(f"[INFO] Wrote {len(symbols)} unique symbols to {output_path}")
+    return len(symbols)
+
+
 def main():
-    # Env-driven script wrapper (fine for CLI), but calls the shared builder for parity.
-    data_dir = getenv("COMMON_DATA_DIR", "")
+    """
+    Process the dataset specified by active_process_dataset in config.yaml.
+    Automatically extracts symbols to symbols_in_option_data_*.txt for use by a01.
+    """
+    # Get active dataset configuration
+    dataset_cfg = config.get_active_dataset_config()
+
+    if not dataset_cfg:
+        raise SystemExit(
+            "No active dataset configuration found. "
+            "Set active_process_dataset in config.yaml (e.g., 'f', 'orig', 'a', etc.)"
+        )
+
+    active_dataset = config._load_yaml_config().get('active_process_dataset', '')
+    print(f"[INFO] Processing dataset: {active_dataset}")
+    print(f"[INFO] Data directory: {dataset_cfg.get('data_dir')}")
+
+    # Get configuration values
+    data_dir = dataset_cfg.get("data_dir", "")
+    basic_csv = dataset_cfg.get("data_basic_csv", "trades_raw_orig.csv")
+    symbols_file = dataset_cfg.get("tickers_file", "")
+
+    if not data_dir:
+        raise SystemExit("data_dir not specified in dataset configuration")
+
+    # Pipeline configuration
     glob_pat = getenv("DATA_GLOB", "coveredPut_*.csv")
     target_time = getenv("DATA_TARGET_TIME", "11:00")
 
-    # outputs
+    # Outputs
     out_dir = getenv("COMMON_OUTPUT_DIR", "output")
     out_dir = os.path.join(out_dir, "data_prep")
     os.makedirs(out_dir, exist_ok=True)
@@ -254,47 +304,50 @@ def main():
     base_dir = getenv("GEX_BASE_DIR")
     gex_target_time_str = getenv("GEX_TARGET_TIME", "11:00")
     if not base_dir:
-        raise SystemExit("GEX_BASE_DIR is not set in .env")
+        raise SystemExit("GEX_BASE_DIR is not set in config.yaml or .env")
 
     # VIX and price sources
     VIX_CSV = getenv("MACRO_VIX_CSV", "").strip() or None
-    PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip() or None  # dir with <SYMBOL>.csv, Date, Close
+    PX_BASE_DIR = getenv("MACRO_PX_BASE_DIR", "").strip() or None
 
-    # IMPORTANT:
-    # This script no longer reads GEX_FILTER from env to avoid silent training/scoring drift.
-    # If you still want that behavior for one-off runs, explicitly pass gex_filter_missing=True here.
+    # Build dataset
     gex_filter_missing = False
+    ENFORCE_DAILY_PICK = False
 
-    # For all
-    common_configs = config.get_common_configs_raw()
-    for k, v in common_configs.items():
-        basic_csv = v.get("data_basic_csv", "trades_raw_orig.csv")
-        data_dir_k = v.get("data_dir", data_dir)
+    print(f"[INFO] Building dataset with features...")
+    out = build_dataset_with_features(
+        data_dir=data_dir,
+        glob_pat=glob_pat,
+        target_time=target_time,
+        gex_base_dir=base_dir,
+        gex_target_time=gex_target_time_str,
+        vix_csv=VIX_CSV,
+        px_base_dir=PX_BASE_DIR,
+        enforce_daily_pick=ENFORCE_DAILY_PICK,
+        gex_filter_missing=gex_filter_missing,
+        out_dir=out_dir,
+        basic_csv_name=basic_csv,
+        filter_func=filter_by_dte,
+    )
 
-        if k == "original":
-            print(f"Skipping {k}")
-            continue
+    # Print build report
+    print(json.dumps(out.report, indent=2))
 
-        ENFORCE_DAILY_PICK = False
-        out = build_dataset_with_features(
-            data_dir=data_dir_k,
-            glob_pat=glob_pat,
-            target_time=target_time,
-            gex_base_dir=base_dir,
-            gex_target_time=gex_target_time_str,
-            vix_csv=VIX_CSV,
-            px_base_dir=PX_BASE_DIR,
-            enforce_daily_pick=ENFORCE_DAILY_PICK,
-            gex_filter_missing=gex_filter_missing,
-            out_dir=out_dir,
-            basic_csv_name=basic_csv,
-            filter_func = filter_by_dte,
-        )
-        print(json.dumps(out.report, indent=2))
-        date_str = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_fn = os.path.join("log", f"a00build_dataset_log_{k}_{date_str}.json".replace(" ", "_").replace(":", "-"))
-        with open(log_fn, "w") as f:
-            json.dump(out.report, f, indent=2)
+    # Write log file
+    date_str = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_fn = os.path.join("log", f"a00build_dataset_log_{active_dataset}_{date_str}.json".replace(" ", "_").replace(":", "-"))
+    os.makedirs("log", exist_ok=True)
+    with open(log_fn, "w") as f:
+        json.dump(out.report, f, indent=2)
+
+    # Extract and write symbols for a01 to use
+    if symbols_file:
+        print(f"[INFO] Extracting symbols for corporate events collection...")
+        num_symbols = extract_and_write_symbols(out.df, symbols_file)
+        print(f"[SUCCESS] Symbols file written: {symbols_file}")
+        print(f"[SUCCESS] Ready for a01_collect_corp_events.py")
+    else:
+        print("[WARN] No tickers_file specified in config, skipping symbol extraction")
 
 
 if __name__ == "__main__":

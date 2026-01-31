@@ -1,12 +1,33 @@
+# ============================================
+# ACTIVE CONFIGURATION (Change these 3 lines only)
+# ============================================
+active_train_profile: "origabcde"  # Training: orig, origa, origab, origabc, origabcd, origabcde
+active_score_dataset: "f"          # Scoring: a, b, c, d, e, f
+active_process_dataset: "f"        # Processing (a01/a02): orig, a, b, c, d, e, f
+
+# ============================================
 # Common configuration groups (must be defined first)
+# ============================================
 common_configs:
   # Original training data (before Aug 11)
   original: &original_config
     data_dir: "option/put/unprocessed"
     data_basic_csv: "trades_raw_orig.csv"
-    output_csv: "labeled_trades_orig.csv"
+    #output_csv: "labeled_trades_orig.csv"
+    output_csv: "labeled_trades_with_gex_macro_orig.csv"
+    #output_csv: "labeled_merged_with_gex_macro_orig.csv"
     # min expiry date plus 1 day in this set is 2024-08-11
     cutoff_date: "2025-08-16"
+
+    # Corp events settings (for a01)
+    events_start_date: "2025-04-25"
+    events_end_date: "2025-08-11"
+    events_output: "output/data_prep/corp_events/events_orig.csv"
+    tickers_file: "output/data_prep/corp_events/symbols_in_option_data_orig.txt"
+
+    # Filtered trades settings (for a02)
+    filtered_trades_csv: "option/put/filtered/trades_filtered_orig.csv"
+    filtered_out_csv: "option/put/filtered/trades_excluded_orig.csv"
 
   # Data after Aug 11
   aug_11: &aug_11_config
@@ -15,12 +36,32 @@ common_configs:
     output_csv: "labeled_trades_a_0811.csv"
     cutoff_date: "2025-09-13"
 
+    # Corp events settings (for a01)
+    events_start_date: "2025-08-11"
+    events_end_date: "2025-08-29"
+    events_output: "output/data_prep/corp_events/events_a.csv"
+    tickers_file: "output/data_prep/corp_events/symbols_in_option_data_a.txt"
+
+    # Filtered trades settings (for a02)
+    filtered_trades_csv: "option/put/filtered/trades_filtered_a.csv"
+    filtered_out_csv: "option/put/filtered/trades_excluded_a.csv"
+
   # Data after Sep 1, set B
   sep_1: &sep_1_config
     data_dir: "option/put/put25_0901-0912"
     data_basic_csv: "trades_raw_b_0901.csv"
     output_csv: "labeled_trades_b_0901.csv"
     cutoff_date: "2025-09-20"
+
+    # Corp events settings (for a01)
+    events_start_date: "2025-09-01"
+    events_end_date: "2025-09-12"
+    events_output: "output/data_prep/corp_events/events_b.csv"
+    tickers_file: "output/data_prep/corp_events/symbols_in_option_data_b.txt"
+
+    # Filtered trades settings (for a02)
+    filtered_trades_csv: "option/put/filtered/trades_filtered_b.csv"
+    filtered_out_csv: "option/put/filtered/trades_excluded_b.csv"
 
   # Data after Sep 15, set C
   sep_15: &sep_15_config
@@ -29,12 +70,32 @@ common_configs:
     output_csv: "labeled_trades_c_0915.csv"
     cutoff_date: "2025-10-04"
 
+    # Corp events settings (for a01)
+    events_start_date: "2025-09-15"
+    events_end_date: "2025-09-26"
+    events_output: "output/data_prep/corp_events/events_c.csv"
+    tickers_file: "output/data_prep/corp_events/symbols_in_option_data_c.txt"
+
+    # Filtered trades settings (for a02)
+    filtered_trades_csv: "option/put/filtered/trades_filtered_c.csv"
+    filtered_out_csv: "option/put/filtered/trades_excluded_c.csv"
+
   # Data after Sep 29, set D
   sep_29: &sep_29_config
     data_dir: "option/put/put25_0929-1010"
     data_basic_csv: "trades_raw_d_0929.csv"
     output_csv: "labeled_trades_d_0929.csv"
     cutoff_date: "2025-10-18"
+
+    # Corp events settings (for a01)
+    events_start_date: "2025-09-29"
+    events_end_date: "2025-10-10"
+    events_output: "output/data_prep/corp_events/events_d.csv"
+    tickers_file: "output/data_prep/corp_events/symbols_in_option_data_d.txt"
+
+    # Filtered trades settings (for a02)
+    filtered_trades_csv: "option/put/filtered/trades_filtered_d.csv"
+    filtered_out_csv: "option/put/filtered/trades_excluded_d.csv"
 
   # Data after Oct 13, set E
   oct_13: &oct_13_config
@@ -43,12 +104,32 @@ common_configs:
     output_csv: "labeled_trades_e_1013.csv"
     cutoff_date: "2025-11-01"
 
+    # Corp events settings (for a01)
+    events_start_date: "2025-10-13"
+    events_end_date: "2025-10-24"
+    events_output: "output/data_prep/corp_events/events_e.csv"
+    tickers_file: "output/data_prep/corp_events/symbols_in_option_data_e.txt"
+
+    # Filtered trades settings (for a02)
+    filtered_trades_csv: "option/put/filtered/trades_filtered_e.csv"
+    filtered_out_csv: "option/put/filtered/trades_excluded_e.csv"
+
   # Data after Oct 27, set F
   oct_27: &oct_27_config
     data_dir: "option/put/put25_1027-1107"
     data_basic_csv: "trades_raw_f_1027.csv"
     output_csv: "labeled_trades_f_1027.csv"
     cutoff_date: "2025-11-15"
+
+    # Corp events settings (for a01)
+    events_start_date: "2025-10-27"
+    events_end_date: "2025-11-07"
+    events_output: "output/data_prep/corp_events/events_f.csv"
+    tickers_file: "output/data_prep/corp_events/symbols_in_option_data_f.txt"
+
+    # Filtered trades settings (for a02)
+    filtered_trades_csv: "option/put/filtered/trades_filtered_f.csv"
+    filtered_out_csv: "option/put/filtered/trades_excluded_f.csv"
 
 
   # Data for small test
@@ -60,12 +141,14 @@ common_configs:
 # Common values used across sections
 common:
   output_dir: "output"
+  data_prep: "data_prep"
+  labeled: "data_labeled"
   # Active configuration - change this reference to switch entire config group
-  # <<: *original_config  # Change to *aug_11_config or *sep_5_config as needed
+  <<: *original_config  # Change to *aug_11_config or *sep_5_config as needed
   #<<: *aug_11_config #or 
   #<<: *sep_8_config # dataset B
   #<<: *sep_29_config # for small test
-  <<: *sep_15_config  # dataset C
+  #<<: *sep_15_config  # dataset C
 process_on_fly: 0
 write_sweep: 1
 
@@ -124,23 +207,15 @@ labeling:
 
 # Winner Classifier Configuration
 winner:
-  # Required
-  input: "output/labeled_trades_enriched.csv"
-  # no earnings(ne), stratified, with weights(w), using epsilon=0.02(ep)
+  # Auto-computed from active_train_profile
+  input: "output/data_labeled/labeled_merged_with_gex_macro_{active_train_profile}.csv"
   train_epsilon: 0.02
-  #output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm"
-  # alternative, traning plus test1
-  output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts"
-  # alternative2, traning plus test2
-  #output_dir: "output/winner_train/v7_oof_ne_ts_w_lgbm_tr_ts_minus"
-  # output_dir: "output/winner_train/v6_oof_ne_straied_w_catboost"
-  # alternative 3, traning plus A and B
-  output_dir: "output/winner_train/v7_oof_ne_ts_w_tr_A_B"
+  output_dir: "output/winner_train/v9_oof_{active_train_profile}"
   early_stopping_rounds: 100
   valid_fraction: 0.1
 
   # Now only base name, will be combined with the model type (lgbm, rf, catboost)
-  model_name: "winner_classifier_v7"
+  model_name: "winner_classifier_v9"
   # options are return_mon, return_ann, return_pct
   train_target: "return_mon"
   model_type: "lgbm"  # Options: lgbm, catboost, rf
@@ -177,34 +252,11 @@ winner:
 
 # Winner Scoring Configuration
 winnerscore:
-  #score_input: "output/labeled_trades_tr3.csv"
-  #score_input: "output/trades_with_gex_macro_ts29b.csv"
-  # score_input: "output/labeled_trades_normal.csv"
-  # score_input: "output/labeled_trades_t1.csv"
-  #score_input: "output/labeled_trades_b_0906-0911.csv"
-  #score_input: "output/labeled_trades_a_0811fix.csv"
-  score_input: "output/labeled_trades_c_0912.csv"
-  #score_input: "output/labeled_trades_B_0908.csv"
-
-  #model_in: "output/winner_train/external/winner_classifier_v9_oof_ne_w_lgbm.pkl"
-  # model_in: "output/winner_train/v6_oof2/winner_classifier_model_v6_oof.pkl"
-  # model_in: "output/winner_train/v6/winner_classifier_model_v6.pkl"
-  # model_in: "output/winner_train/v6_oof_ne/winner_classifier_model_v6_oof_ne.pkl"
-  # model_in: "output/winner_train/external/winner_classifier_v6_oof_ne_w_rfctr_lgbm.pkl"
-  # model_in: "output/winner_train/v6_oof_ne_ts_w_lgbm_gex/winner_classifier_v6_oof_ne_w_lgbm.pkl"
-
-  #score_out_folder: "output/winner_score/v7_lgbm_tr_score_ts_a0811fix"
-  #score_out_folder: "output/winner_score/v7_lgbm_score_t2"
-  #score_out_folder: "output/winner_score/v7_lgbm_tr_A_score_ts_B"
-  score_out_folder: "output/winner_score/v7_lgbm_tr_A_B_score_ts_C"
-  # score_out_folder: "output/winner_score/extern_rfctr_lgbm"
-  # the data removed the future not expired trades
-  # score_out_folder: "output/winner_score/rfctr_lgbm_fix"
-  # score refactored
-  # score_out_folder: "output/winner_score/rfctr_lgbm_score_rfctr"
-
-  score_out: "scores_winner_lgbm_tr_A_score_ts_C.csv"
-  # score_out: "scores_winner_rfctr_lgbm_tr3.csv"
+  # Auto-computed from active_score_dataset and active_train_profile
+  score_input: "output/data_labeled/labeled_trades_with_gex_macro_{active_score_dataset}.csv"
+  model_in: "output/winner_train/v8_oof_{active_train_profile}/winner_classifier_model_{active_train_profile}_lgbm.pkl"
+  score_out_folder: "output/winner_score/v8_model_{active_train_profile}"
+  score_out: "scores_winner_lgbm_{active_score_dataset}.csv"
 
   proba_col: "win_proba"
   pred_col: "win_predict"

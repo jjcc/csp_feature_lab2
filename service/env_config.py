@@ -34,6 +34,28 @@ class ConfigLoader:
                 flattened[new_key.upper()] = str(value) if value is not None else ''
         return flattened
 
+    def _resolve_template(self, value):
+        """Replace {variable} placeholders in strings with values from config."""
+        if not isinstance(value, str):
+            return value
+
+        # Replace {active_train_profile} with actual value
+        if '{active_train_profile}' in value:
+            profile = self._config.get('ACTIVE_TRAIN_PROFILE', '')
+            value = value.replace('{active_train_profile}', profile)
+
+        # Replace {active_score_dataset} with actual value
+        if '{active_score_dataset}' in value:
+            dataset = self._config.get('ACTIVE_SCORE_DATASET', '')
+            value = value.replace('{active_score_dataset}', dataset)
+
+        # Replace {active_process_dataset} with actual value
+        if '{active_process_dataset}' in value:
+            dataset = self._config.get('ACTIVE_PROCESS_DATASET', '')
+            value = value.replace('{active_process_dataset}', dataset)
+
+        return value
+
     def get(self, key, default=None):
         """Get configuration value by key, with fallback to env variables."""
         if self._config is None:
@@ -42,6 +64,9 @@ class ConfigLoader:
 
         # Try YAML config first
         value = self._config.get(key)
+
+        # Resolve template placeholders
+        value = self._resolve_template(value)
 
         # If not found and fallback enabled, try environment variables
         if value is None and self.fallback_to_env:
@@ -62,6 +87,36 @@ class ConfigLoader:
         """Get common configuration parameters."""
         yaml_config = self._load_yaml_config()
         return yaml_config.get('common_configs', {})
+
+    def get_active_dataset_config(self):
+        """Get configuration for the active processing dataset.
+
+        Returns the dataset config corresponding to active_process_dataset.
+        Used by a01/a02 scripts for corp events and trade filtering.
+        """
+        yaml_config = self._load_yaml_config()
+        active_dataset = yaml_config.get('active_process_dataset', '')
+
+        if not active_dataset:
+            return {}
+
+        # Map dataset tag to config key
+        tag_to_key = {
+            'orig': 'original',
+            'a': 'aug_11',
+            'b': 'sep_1',
+            'c': 'sep_15',
+            'd': 'sep_29',
+            'e': 'oct_13',
+            'f': 'oct_27',
+        }
+
+        config_key = tag_to_key.get(active_dataset)
+        if not config_key:
+            return {}
+
+        common_configs = yaml_config.get('common_configs', {})
+        return common_configs.get(config_key, {})
     
 
     def get_derived_file(self, basic_csv):

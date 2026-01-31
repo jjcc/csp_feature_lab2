@@ -24,34 +24,48 @@ pip install -r requirements.txt
 
 The main pipeline follows a naming convention where scripts are prefixed with letters/numbers indicating execution order:
 
-1. **Collect corporate events** (a01):
+1. **Build initial dataset from raw snapshots** (a00):
+   ```bash
+   python a00build_dataset_with_features.py
+   ```
+   - Uses `active_process_dataset` from config.yaml to select which dataset to process
+   - Loads raw CSP snapshots from data_dir (e.g., `option/put/put25_1027-1107/coveredPut_*.csv`)
+   - Merges multiple snapshot files into single dataset
+   - Merges GEX features from `gex101/` (symlink to NAS)
+   - Adds VIX and macro price features
+   - **Automatically extracts and writes unique symbols** to `symbols_in_option_data_*.txt`
+   - Output: Merged trades file (data_basic_csv) + enriched dataset + symbols file
+   - **Symbol extraction is now automated** - no manual step needed!
+   - Note: File will be renamed to a03 in future to match execution order
+
+   **Batch processing all datasets**:
+   ```bash
+   python a00build_all_datasets.py
+   ```
+   - Processes ALL datasets in common_configs (instead of just active_process_dataset)
+   - Useful for bulk regeneration
+
+2. **Collect corporate events** (a01):
    ```bash
    python a01_collect_corp_events.py
    ```
-   - Scrapes EDGAR for earnings (8-K Item 2.02 filings)
+   - Reads symbol list from `symbols_in_option_data_*.txt`
+   - Scrapes EDGAR for earnings (8-K Item 2.02 filings) for those symbols
    - Fetches stock splits from yfinance API
    - Unified output with both event types
    - Output: `output/data_prep/corp_events/events_*.csv`
    - **Run once per dataset** (events don't change)
 
-2. **Filter trades near corporate events** (a02):
+3. **Filter trades near corporate events** (a02):
    ```bash
    python a02_filter_noisy_trades.py
    ```
+   - Reads events from a01 output and trades from data_basic_csv
    - Removes trades opened or expiring too close to earnings/splits
    - Configurable exclusion windows (±days before/after events)
    - Reduces training noise from abnormal volatility
    - Output: `option/put/filtered/trades_filtered_*.csv`
    - See `doc/a02_filter_usage.md` for tuning guide
-
-3. **Build dataset with features** (a00 - will become a03):
-   ```bash
-   python a00build_dataset_with_features.py
-   ```
-   - Loads filtered CSP snapshots from `option/put/filtered/`
-   - Merges GEX features from `gex101/` (symlink to NAS)
-   - Adds VIX and macro price features
-   - Output: `output/data_prep/trades_with_gex_macro_*.csv`
 
 4. **Label trades** (a09):
    ```bash
@@ -105,31 +119,67 @@ pytest test/
 
 ## Configuration System
 
+### Unified Configuration (Updated 2026-01-30)
+
+The project uses a **unified template-based configuration system**. Change 3 variables at the top of `config.yaml` to control the entire pipeline.
+
+**Active Configuration (Top of config.yaml)**:
+```yaml
+active_train_profile: "origabcde"   # Which datasets to train on
+active_score_dataset: "f"           # Which dataset to score
+active_process_dataset: "f"         # Which dataset to process (a00/a01/a02)
+```
+
+**Important**: `active_process_dataset` controls the entire data preparation pipeline:
+- **a00**: Processes the specified dataset, extracts symbols automatically
+- **a01**: Uses the symbols file from a00 to collect corporate events
+- **a02**: Filters trades using events from a01
+
+**Key Features**:
+- **Template resolution**: Paths use `{active_train_profile}`, `{active_score_dataset}`, `{active_process_dataset}` placeholders
+- **Automatic sync**: Change one variable, all paths update automatically
+- **Walk-forward validation**: Profile names show incremental growth (orig → origa → origab → origabc)
+- **Dataset registry**: All dataset configs in one place with naming convention enforcement
+
 ### config.yaml Structure
 
-The project uses YAML anchors (`&anchor` / `*anchor`) for managing multiple dataset configurations:
+The project uses YAML anchors (`&anchor` / `*anchor`) plus template-based paths:
 
-- **common_configs**: Defines dataset groups (original, aug_11, sep_1, etc.) with:
+- **Active variables** (top of file): Control which datasets to use
+  - `active_train_profile`: Training dataset combination (e.g., "origabcde")
+  - `active_score_dataset`: Scoring dataset (e.g., "f")
+  - `active_process_dataset`: Processing dataset for a00/a01/a02 (e.g., "f")
+
+- **common_configs**: Dataset registry with all dataset-specific settings
   - `data_dir`: Where raw CSP snapshots live
   - `data_basic_csv`: Merged raw trades file
   - `output_csv`: Labeled trades destination
   - `cutoff_date`: Don't label trades expiring after this (prevents peeking at future)
+  - `events_start_date`, `events_end_date`: Corp events date range (for a01)
+  - `events_output`: Corp events output CSV path (for a01)
+  - `tickers_file`: Symbol list for corp events collection (for a01)
+  - `filtered_trades_csv`, `filtered_out_csv`: Filtered trade paths (for a02)
 
-- **common**: Active dataset selected via `<<: *original_config`
-
-- **labeling**: Can use a different dataset config than training (for validation)
-
-- **winner**: Winner classifier settings
-  - `input`: Path to labeled CSV
+- **winner**: Winner classifier settings with templates
+  - `input`: `"output/data_labeled/labeled_merged_with_gex_macro_{active_train_profile}.csv"`
+  - `output_dir`: `"output/winner_train/v9_oof_{active_train_profile}"`
   - `train_target`: "return_mon" (monthly), "return_ann" (annualized), or "return_pct"
   - `model_type`: "lgbm", "catboost", or "rf"
   - `oof_folds`: Number of cross-validation folds
   - `time_series`: Use TimeSeriesSplit (1) or StratifiedKFold (0)
 
-- **winnerscore**: Scoring configuration
-  - `score_input`: CSV to score
-  - `model_in`: Trained model path
-  - `threshold`: Fixed threshold or use auto-calibration
+- **winnerscore**: Scoring configuration with templates
+  - `score_input`: `"output/data_labeled/labeled_trades_with_gex_macro_{active_score_dataset}.csv"`
+  - `model_in`: `"output/winner_train/v8_oof_{active_train_profile}/winner_classifier_model_{active_train_profile}_lgbm.pkl"`
+  - `score_out_folder`: `"output/winner_score/v8_model_{active_train_profile}"`
+  - `score_out`: `"scores_winner_lgbm_{active_score_dataset}.csv"`
+
+### corp_action_config.yaml
+
+Common behavior settings for a01/a02 (dataset-specific paths come from config.yaml):
+- **SEC settings**: `user_agent`, `sleep_seconds`, `cache_dir`
+- **Exclusion windows**: Days before/after earnings/splits to filter trades
+- **Column names**: CSV column mappings
 
 ### Environment Variables
 
@@ -138,7 +188,14 @@ The project uses YAML anchors (`&anchor` / `*anchor`) for managing multiple data
 - Scoring uses `WINNERSCORE_*` prefixed variables
 - Tail model uses `TAIL_*` and `CSV_INPUT`, `MODEL_OUT`
 
-The `service/env_config.py` module provides `getenv(key, default)` that checks YAML first, then falls back to environment variables.
+The `service/env_config.py` module:
+- Provides `getenv(key, default)` that checks YAML first, then falls back to environment variables
+- Resolves `{template}` placeholders in paths automatically
+- Provides `get_active_dataset_config()` to fetch dataset-specific settings for a00/a01/a02
+
+**Note**: The `common:` section with `<<: *anchor` is legacy. Modern scripts (a00/a01/a02) now use `active_process_dataset` and `get_active_dataset_config()` directly, making the common section less relevant.
+
+**See**: `doc/unified_config_usage.md` for detailed usage guide and examples.
 
 ## Architecture
 
@@ -155,13 +212,15 @@ The `service/env_config.py` module provides `getenv(key, default)` that checks Y
 ### Data Flow
 
 ```
-Raw CSP snapshots (option/put/unprocessed/*)
+Raw CSP snapshots (option/put/put25_*/coveredPut_*.csv)
+  ↓ [a00build_dataset_with_features.py]
+Merged trades + enriched dataset (data_basic_csv + trades_with_gex_macro_*.csv)
+  ↓ [Extract unique symbols to symbols_in_option_data_*.txt]
+Symbol list (output/data_prep/corp_events/symbols_in_option_data_*.txt)
   ↓ [a01_collect_corp_events.py]
 Corporate events (output/data_prep/corp_events/events_*.csv)
-  ↓ [a02_filter_noisy_trades.py]
-Filtered snapshots (option/put/filtered/trades_filtered_*.csv)
-  ↓ [a00build_dataset_with_features.py - will become a03]
-Enriched dataset (output/data_prep/trades_with_gex_macro_*.csv)
+  ↓ [a02_filter_noisy_trades.py reads data_basic_csv + events]
+Filtered trades (option/put/filtered/trades_filtered_*.csv)
   ↓ [a09label_data.py + yfinance price lookups]
 Labeled dataset (output/data_labeled/labeled_trades_*.csv)
   ↓ [b01train_winner_classifier_pct_oof.py]
