@@ -143,9 +143,13 @@ def fetch_splits_yfinance(
             if start_dt or end_dt:
                 mask = pd.Series([True] * len(splits), index=splits.index)
                 if start_dt:
-                    mask &= (splits.index >= start_dt)
+                    # Convert start_dt to timezone-aware to match splits.index timezone
+                    start_dt_tz = start_dt.tz_localize('America/New_York') if start_dt.tz is None else start_dt.tz_convert('America/New_York')
+                    mask &= (splits.index >= start_dt_tz)
                 if end_dt:
-                    mask &= (splits.index <= end_dt)
+                    # Convert end_dt to timezone-aware to match splits.index timezone
+                    end_dt_tz = end_dt.tz_localize('America/New_York') if end_dt.tz is None else end_dt.tz_convert('America/New_York')
+                    mask &= (splits.index <= end_dt_tz)
                 splits = splits[mask]
 
             for split_date, split_factor in splits.items():
