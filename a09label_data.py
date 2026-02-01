@@ -118,16 +118,6 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
 
     df['expiry_close'] = df.apply(expiry_close_from_cache, axis=1)
 
-    # Compute labels and basic PnL (cash-settled approximation at expiry)
-    def label_row(r):
-        strike = safe_float(r["strike"])
-        expiry_close = safe_float(r["expiry_close"])
-        if not np.isfinite(strike) or not np.isfinite(expiry_close):
-            return np.nan
-        return 1 if expiry_close >= strike else 0  # win = OTM at expiry
-
-    df["won_rough"] = df.apply(label_row, axis=1)
-
     # Entry credit model: mid minus a fraction of half-spread
     def entry_credit(r, take_from_mid_pct=0.35, min_abs=0.01):
         bidPrice = safe_float(r.get("bidPrice"))
@@ -163,8 +153,16 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
     df["return_pct"] = np.where(df["capital"]>0, df["total_pnl"]/df["capital"]*100.0, np.nan)
 
-    # add final win label based on total_pnl
-    df["won"] = df["total_pnl"] > 0
+
+
+    # add final win label based on return_pct threshold
+    def label_row(r, win_threshold=0.88):
+        return_pct = safe_float(r["return_pct"])
+        if not np.isfinite(return_pct):
+            return np.nan
+        return 1 if return_pct > win_threshold else 0
+
+    df["won"] = df.apply(label_row, axis=1)
 
     return df
 
@@ -239,6 +237,9 @@ def label_single_dataset():
     # filter rows with missing GEX if specified. Default: keep all rows
     if getenv("GEX_FILTER", "0").strip() in {"1","true","yes","y","on"}:
         input_csv = input_csv.replace(".csv", "_gexonly.csv")
+    filtered_input_csv = os.path.join(os.path.dirname(input_csv), f"filtered_{os.path.basename(input_csv)}")
+    if os.path.exists(filtered_input_csv):
+        input_csv = filtered_input_csv
     df = pd.read_csv(input_csv, index_col="row_id")
 
     cut_off_date = getenv("COMMON_CUTOFF_DATE", "2025-09-29")
@@ -253,7 +254,7 @@ def label_multiple_single_dataset():
     os.makedirs(out_dir, exist_ok=True)
 
     cutoff_dates_by_tag = get_cutoff_dates()
-    files = [f for f in os.listdir(input_dir) if f.startswith("trades_with_gex") and f.endswith(".csv")]
+    files = [f for f in os.listdir(input_dir) if f.startswith("filtered_trades_with_gex") and f.endswith(".csv")]
     files.sort()
     for f in files:
         #if '1027' not in f:
@@ -266,46 +267,13 @@ def label_multiple_single_dataset():
         with open(MISSING_STOCKS_PATH, "r") as fp:
             missing_stocks = json.load(fp)
         df = df[~df['baseSymbol'].isin(missing_stocks)].copy()
-        # remove other stocks need to be excluded
-        with open(EXCLUDE_STOCKS_PATH, "r") as fp:
-            exclude_dict = json.load(fp)
-        if '1027' in f:
-            more_exclude = ['ABR', 'ACHR', 'ADM', 'AES', 'AFRM', 'AG', 'AMAT', 'AMC', 'AMD',
-                'ANET', 'ARM', 'ASTS', 'BA', 'BBAI', 'BITF', 'BTBT', 'CAR', 'CAVA',
-                'CCJ', 'CELH', 'CIFR', 'CLOV', 'CMCSA', 'CMG', 'COIN', 'CRWV',
-                'CSCO', 'CVNA', 'CVS', 'CZR', 'DASH', 'DDD', 'DKNG', 'DNUT',
-                'DUOL', 'ENPH', 'ENVX', 'ETSY', 'FIG', 'FI', 'HIMS', 'HIVE',
-                'HOOD', 'HUT', 'IREN', 'JBLU', 'JOBY', 'KHC', 'KVUE', 'LAES',
-                'LUNR', 'MARA', 'MCHP', 'MDLZ', 'MOS', 'MO', 'MP', 'MSFT', 'MSTR',
-                'NBIS', 'NCLH', 'NEE', 'NVO', 'NXPI', 'OKLO', 'ONDS', 'ON', 'OPEN',
-                'OSCR', 'PCT', 'PINS', 'PLTR', 'POET', 'PTON', 'PYPL', 'QBTS',
-                'QCOM', 'QSI', 'QUBT', 'RBLX', 'RCAT', 'RDW', 'RGTI', 'RIOT',
-                'RKLB', 'RKT', 'RXRX', 'SBUX', 'SERV', 'SG', 'SHOP', 'SMR', 'SOFI',
-                'SOUN', 'TEM', 'UBER', 'UNH', 'UPST', 'USAR', 'UUUU', 'VFC', 'VST',
-                'V', 'WULF', 'XYZ', 'ZETA'] 
-        if 'orig' in f:
-            more_exclude =['ABR' 'ACHR' 'ADBE' 'AG' 'AMAT' 'AMD' 'AMZN' 'APLD' 'ARM' 'ASTS' 'BABA'
-                'BA' 'BIDU' 'BYND' 'CAG' 'CAR' 'CCJ' 'CELH' 'CHWY' 'CIFR' 'CLF' 'CLSK'
-                'CMCSA' 'CMG' 'COIN' 'CORZ' 'CRM' 'CVNA' 'DDD' 'DECK' 'DJT' 'DNUT' 'DOW'
-                'ENPH' 'GLXY' 'HIMS' 'HOOD' 'INTC' 'JBLU' 'JD' 'JOBY' 'KHC' 'LUNR' 'LUV'
-                'MARA' 'MCHP' 'MOS' 'MSTR' 'NEE' 'NKE' 'NVDA' 'NVO' 'OKLO' 'ON' 'OPEN'
-                'OSCR' 'OXY' 'PINS' 'PLTR' 'PM' 'PYPL' 'QBTS' 'QCOM' 'RBLX' 'RGTI' 'RIOT'
-                'RKLB' 'RKT' 'RUM' 'RXRX' 'SBUX' 'SERV' 'SG' 'SHOP' 'SMR' 'SOFI' 'SOUN'
-                'TDOC' 'TEM' 'TGT' 'TSLA' 'TXN' 'UBER' 'UNH' 'UPST' 'UUUU' 'VFC' 'V'
-                'WFC' 'WMT' 'WULF' 'XYZ']
-        exclude_stocks = list(exclude_dict.keys())
-        exclude_stocks.extend(more_exclude)
-        df = df[~df['baseSymbol'].isin(exclude_stocks)].copy()
 
-        if '1027' in f:
-            exclude = ['NVTS','CGM','META']
-            df = df[~df['baseSymbol'].isin(exclude)].copy()
 
         # get the cutoff date from the config
         last_tag = get_tag(f, merged = False)
         cutoff_date = cutoff_dates_by_tag.get(last_tag, None)
         print(f"  Cutoff date for tag {last_tag}: {cutoff_date}")
-        output_csv = f"labeled_{f}_filtered.csv"
+        output_csv = f"labeled_{f}"
         label_csv_file(df, output_csv, cutoff_date)
 
 def lablel_merge_dataset():
@@ -338,7 +306,7 @@ def lablel_merge_dataset():
     
 def get_tag(f, merged=False):
     if not merged:
-        tag_block = f.split("_")[4].replace(".csv", "")
+        tag_block = f.split("_")[-1].replace(".csv", "")
         last_tag = tag_block
     else: # case of merged files
         tag_block = f.split("_")[-1].replace(".csv", "")

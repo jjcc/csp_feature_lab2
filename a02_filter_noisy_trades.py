@@ -312,6 +312,21 @@ def apply_exclusion_rules(
     return df
 
 
+def _build_filtered_path(path: str, prefix: str = "filtered_") -> str:
+    dir_name = os.path.dirname(path)
+    base_name = os.path.basename(path)
+    candidate = os.path.join(dir_name, f"{prefix}{base_name}")
+    if not os.path.exists(candidate):
+        return candidate
+    name, ext = os.path.splitext(base_name)
+    idx = 1
+    while True:
+        candidate = os.path.join(dir_name, f"{prefix}{name}_{idx}{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+        idx += 1
+
+
 def generate_report(
     original_df: pd.DataFrame,
     filtered_df: pd.DataFrame,
@@ -467,10 +482,11 @@ def main():
                             "days_before", "days_after"]]
     kept_df = kept_df.drop(columns=cols_to_drop)
 
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(config.output_csv) or ".", exist_ok=True)
-    kept_df.to_csv(config.output_csv, index=False)
-    print(f"  Saved {len(kept_df):,} filtered trades → {config.output_csv}")
+    # Save filtered trades alongside the original with a "filtered_" prefix
+    filtered_path = _build_filtered_path(config.trades_csv)
+    os.makedirs(os.path.dirname(filtered_path) or ".", exist_ok=True)
+    kept_df.to_csv(filtered_path, index=False)
+    print(f"  Saved {len(kept_df):,} filtered trades → {filtered_path}")
 
     # Optionally save excluded trades
     if config.keep_filtered_trades and config.filtered_csv:
@@ -478,7 +494,7 @@ def main():
         print(f"  Saved {len(excluded_df):,} excluded trades → {config.filtered_csv}")
 
     # Save report
-    report_path = config.output_csv.replace(".csv", "_filter_report.txt")
+    report_path = filtered_path.replace(".csv", "_filter_report.txt")
     with open(report_path, "w") as f:
         f.write(report)
     print(f"  Saved filtering report → {report_path}")
