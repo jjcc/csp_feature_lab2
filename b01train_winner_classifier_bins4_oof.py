@@ -295,6 +295,8 @@ class DataPreprocessor:
         weights = self.compute_sample_weights(df)
 
         # Check if we have time series data
+        if "trade_date" not in df.columns and self.config.time_col in df.columns:
+            df["trade_date"] = pd.to_datetime(df[self.config.time_col], errors="coerce").dt.date.astype(str)
         has_time = "trade_date" in df.columns
 
         # Store global medians if using imputation
@@ -594,7 +596,7 @@ class CrossValidator:
         return clf
 
     def run_oof_cv(self, df: pd.DataFrame, y: np.ndarray, features: List[str],
-                   weights: np.ndarray, has_time: bool):
+                   weights: np.ndarray, has_time: bool, is_4bin: bool):
         """Run out-of-fold cross-validation."""
         splitter, split_iter, split_kind = self.get_cv_splitter(df, y, has_time)
 
@@ -634,17 +636,25 @@ class CrossValidator:
                 proba_oof[va] = pva[:, 1]
             fold_idx[va] = k
 
-        # Fill any remaining NaNs
-        nan_mask = np.isnan(proba_oof)
-        if nan_mask.any():
-            fill_val = np.nanmedian(proba_oof)
-            proba_oof[nan_mask] = fill_val
+        if is_4bin:
+            # optional: just uncomment the following lines
+            #missing_rows = np.where(fold_idx == -1)[0]
+            #if len(missing_rows) > 0 and proba_oof.ndim == 2:
+            #    proba_oof[missing_rows, :] = 1.0 / proba_oof.shape[1]
+            pass
+        else: # the same as before
+            # Fill any remaining NaNs
+            nan_mask = np.isnan(proba_oof)
+            if nan_mask.any():
+                fill_val = np.nanmedian(proba_oof)
+                proba_oof[nan_mask] = fill_val
 
         return proba_oof, fold_idx, split_kind
 
 
 def evaluate_bins4(df: pd.DataFrame, y: np.ndarray, proba: np.ndarray, target_col: str) -> Dict:
     from sklearn.metrics import accuracy_score
+    assert proba.shape[1] == 4
     y_pred = np.argmax(proba, axis=1)
     acc = float(accuracy_score(y, y_pred))
     f1m = float(f1_score(y, y_pred, average="macro", zero_division=0))
@@ -721,15 +731,20 @@ def main():
     start_time = pd.Timestamp.now()
 
     # Run OOF Cross-validation
-    proba_oof, fold_idx, split_kind = cv_handler.run_oof_cv(df, y, features, weights, has_time)
+    proba_oof, fold_idx, split_kind = cv_handler.run_oof_cv(df, y, features, weights, has_time, config.label_mode=="bins4")
+    valid_oof = (fold_idx != -1)
+    if not valid_oof.any():
+        raise RuntimeError("No OOF predictions were produced (all fold_idx == -1). Check CV splitter settings.")
+
 
     # Calculate OOF metrics
     if config.label_mode == "bins4":
-        yhat_oof = np.argmax(proba_oof, axis=1)
-        acc = accuracy_score(y, yhat_oof)
-        f1m = f1_score(y, yhat_oof, average="macro", zero_division=0)
-        cm = confusion_matrix(y, yhat_oof)
-        print(f"OOF ACC={acc:.4f}; F1_macro={f1m:.4f}")
+        y_valid = y[valid_oof]
+        proba_valid = proba_oof[valid_oof, :]
+        yhat_oof = np.argmax(proba_valid, axis=1)
+        acc = accuracy_score(y_valid, yhat_oof)
+        f1m = f1_score(y_valid, yhat_oof, average="macro", zero_division=0)
+        cm = confusion_matrix(y_valid, yhat_oof)
         roc_auc = float("nan")
         pr_auc = float("nan")
     else:
@@ -756,7 +771,7 @@ def main():
         # Save final model only
         model_path = os.path.join(config.output_dir, config.model_name)
         joblib.dump(final_model, model_path)
-        metrics = evaluate_bins4(df, y, proba_oof, config.train_target)
+        metrics = evaluate_bins4(df.loc[valid_oof].reset_index(drop=True), y_valid, proba_valid, config.train_target)
         metrics.update({
             "n_rows": int(len(df)),
             "n_features": int(len(features)),
@@ -797,6 +812,7 @@ def _save_evaluation_results(config: WinnerClassifierConfig, df: pd.DataFrame, y
             "p_bin3": proba_oof[:,3],
             "fold": fold_idx
         })
+        oof_out["has_oof"] = (oof_out["fold"] != -1)
         oof_out.to_csv(os.path.join(config.output_dir, "winner_scores_oof.csv"), index=False)
         return
     precision, recall, thresholds = precision_recall_curve(y, proba_oof)
