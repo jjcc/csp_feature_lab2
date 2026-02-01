@@ -1,16 +1,13 @@
+# ============================================
+# CORP ACTION CONFIGURATION
+# ============================================
+# Dataset-specific settings (dates, paths) now come from config.yaml
+# This file only contains common behavior settings
+
+# ===== EDGAR Settings =====
+
 # Required: identify yourself to the SEC
 user_agent: "Jay Chen jchen@apption.com"
-
-# Input tickers
-tickers_file: "output/data_prep/corp_events/symbols_in_option_data_a.txt"
-
-# Date window (inclusive)
-date_range:
-  start: "2025-04-25"
-  end: "2025-08-08"
-
-# Output - unified CSV with both earnings and splits
-output_csv: "output/data_prep/corp_events/events_apr25_aug08.csv"
 
 # Behavior
 sleep_seconds: 0.3    # be polite to SEC
@@ -24,15 +21,8 @@ collect_splits: true  # Set to false to skip split collection
 
 # ===== Trade Filtering Configuration (a02) =====
 
-# Input: Raw option trades to filter
-trades_input_csv: "option/put/unprocessed/trades_raw_orig.csv"
-
-# Output: Filtered trades (events-proximity removed)
-filtered_trades_csv: "option/put/filtered/trades_filtered_orig.csv"
-
 # Optional: Save excluded trades for analysis
 keep_filtered_trades: true
-filtered_out_csv: "option/put/filtered/trades_excluded_orig.csv"
 
 # Exclusion windows: Remove trades near corporate events
 # Logic:
