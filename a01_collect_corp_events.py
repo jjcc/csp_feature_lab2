@@ -348,6 +348,9 @@ TICKER_MAP = { "AMBC":"OSG", "ZI":"GTM", "BTCM":"SLAI", "BYON":"BBBY", "FI":"FIS
 TICKER_REMOVE = ["PARA","VRNA","FL","LAZR"]
 
 def map_ticker(ticker: str) -> Optional[str]:
+    special_tickers = list(TICKER_MAP.keys()) + TICKER_REMOVE
+    if ticker not in special_tickers:
+        return ticker
     t = ticker.upper().strip()
     if t in TICKER_REMOVE:
         return None
@@ -390,7 +393,6 @@ def main() -> None:
     # Check if splits collection is enabled
     collect_splits = cfg.get("collect_splits", True)
 
-    special_tickers = list(TICKER_MAP.keys()) + TICKER_REMOVE
 
     if not tickers:
         raise SystemExit("No tickers found. Put tickers in tickers_file.")
@@ -415,11 +417,11 @@ def main() -> None:
     print(f"[1/2] Collecting earnings events from EDGAR...")
     count = 0
     for t in tickers:
-        if t in special_tickers:
-            mapped = map_ticker(t)
-            if not mapped:
-                print(f"[INFO] Skipping ticker {t} per removal list.")
-                continue
+        mapped = map_ticker(t)
+        if not mapped:
+            print(f"[INFO] Skipping ticker {t} per removal list.")
+            continue
+        if mapped != t:
             print(f"[INFO] Mapping ticker {t} -> {mapped}")
             t = mapped
         cik10 = t2c.get(t)
