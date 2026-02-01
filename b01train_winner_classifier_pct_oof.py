@@ -549,7 +549,7 @@ def main():
     df = pd.read_csv(config.input_csv)
 
     # Validate required columns exist
-    required_cols = ["captureTime", "symbol", config.train_target]
+    required_cols = ["captureTime", "symbol"]
     missing_cols = [c for c in required_cols if c not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns in input CSV: {missing_cols}. "

@@ -153,6 +153,30 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
     df["return_pct"] = np.where(df["capital"]>0, df["total_pnl"]/df["capital"]*100.0, np.nan)
 
+    # Bin within each trade date (cross-sectional)
+    df["_trade_date"] = df["tradeTime"].dt.tz_localize(None).dt.normalize()
+    
+    def assign_bins(g: pd.DataFrame) -> pd.DataFrame:
+        s = g["return_pct"]
+        # handle small groups safely
+        if s.notna().sum() < 20:
+            g["y_bin"] = np.nan
+            return g
+    
+        # percentiles inside the day
+        q25, q50, q75 = s.quantile([0.25, 0.50, 0.75]).values
+    
+        def to_bin(x):
+            if not np.isfinite(x): return np.nan
+            if x <= q25: return 0
+            if x <= q50: return 1
+            if x <= q75: return 2
+            return 3
+    
+        g["y_bin"] = s.apply(to_bin)
+        return g
+    
+    df = df.groupby("_trade_date", group_keys=False).apply(assign_bins)
 
 
     # add final win label based on return_pct threshold
