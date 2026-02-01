@@ -125,6 +125,7 @@ def fetch_splits_yfinance(
     Returns:
         DataFrame with columns: symbol, date, split_factor, split_ratio
     """
+    from a01_collect_corp_events import map_ticker
     all_splits = []
 
     start_dt = pd.to_datetime(date_range[0]) if date_range else None
@@ -132,6 +133,13 @@ def fetch_splits_yfinance(
 
     for i, symbol in enumerate(symbols):
         try:
+            mapped = map_ticker(symbol)
+            if not mapped:
+                print(f"[INFO] Skipping ticker {symbol} per removal list.")
+                continue
+            if mapped != symbol:
+                print(f"[INFO] Mapping ticker {symbol} -> {mapped}")
+                symbol = mapped
             # Handle ticker format (BRK.B stays as BRK.B for yfinance)
             ticker = yf.Ticker(symbol)
             splits = ticker.splits

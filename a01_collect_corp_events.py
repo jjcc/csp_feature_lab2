@@ -344,10 +344,10 @@ def write_unified_csv(events: List[UnifiedEvent], out_path: str) -> None:
                 e.source,
             ])
 
-TICKER_MAP = { "AMBC":"OSG", "ZI":"GTM", "BTCM":"SLAI", "BYON":"BBBY", "FI":"FISV" ,"BRK.B":"BRK-B"}
-TICKER_REMOVE = ["PARA","VRNA","FL","LAZR"]
 
 def map_ticker(ticker: str) -> Optional[str]:
+    TICKER_MAP = { "AMBC":"OSG", "ZI":"GTM", "BTCM":"SLAI", "BYON":"BBBY", "FI":"FISV" ,"BRK.B":"BRK-B"}
+    TICKER_REMOVE = ["PARA","VRNA","FL","LAZR"]
     special_tickers = list(TICKER_MAP.keys()) + TICKER_REMOVE
     if ticker not in special_tickers:
         return ticker
