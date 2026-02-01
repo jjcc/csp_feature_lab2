@@ -189,19 +189,22 @@ def find_nearest_events(
         nearest_event_type_after
     """
     out = trades_df.copy()
-    out = out.sort_values(["_symbol", date_col], kind="mergesort").reset_index(drop=True)
+    out = out.dropna(subset=[date_col, "_symbol"])
+    # merge_asof requires left_on to be globally sorted
+    out = out.sort_values([date_col, "_symbol"], kind="mergesort").reset_index(drop=True)
 
     events_sorted = events_df.copy()
-    events_sorted = events_sorted.sort_values(["_symbol", "_event_date"], kind="mergesort").reset_index(drop=True)
+    events_sorted = events_sorted.dropna(subset=["_event_date", "_symbol"])
+    events_sorted = events_sorted.sort_values(["_event_date", "_symbol"], kind="mergesort").reset_index(drop=True)
 
     # Prepare event dataframes for merging
     events_before = events_sorted[["_symbol", "_event_date", "_event_type"]].copy()
     events_before.columns = ["_symbol", "event_before", "type_before"]
-    events_before = events_before.sort_values(["_symbol", "event_before"], kind="mergesort").reset_index(drop=True)
+    events_before = events_before.sort_values(["event_before", "_symbol"], kind="mergesort").reset_index(drop=True)
 
     events_after = events_sorted[["_symbol", "_event_date", "_event_type"]].copy()
     events_after.columns = ["_symbol", "event_after", "type_after"]
-    events_after = events_after.sort_values(["_symbol", "event_after"], kind="mergesort").reset_index(drop=True)
+    events_after = events_after.sort_values(["event_after", "_symbol"], kind="mergesort").reset_index(drop=True)
 
     # Find nearest event BEFORE the date
     prev_events = pd.merge_asof(
@@ -224,6 +227,12 @@ def find_nearest_events(
         direction="forward",
         allow_exact_matches=True,
     )
+
+    # Ensure expected columns exist even if events are empty after merge
+    if "event_before" not in prev_events.columns:
+        prev_events = prev_events.assign(event_before=pd.NaT, type_before=None)
+    if "event_after" not in next_events.columns:
+        next_events = next_events.assign(event_after=pd.NaT, type_after=None)
 
     # Calculate distances
     out["event_before"] = prev_events["event_before"]
