@@ -189,120 +189,41 @@ def find_nearest_events(
         nearest_event_type_after
     """
     out = trades_df.copy()
-    # Drop any rows with NaN values in key columns for merge_asof
-    out = out.dropna(subset=["_symbol", date_col])
-    # Ensure proper sorting for merge_asof (critical: must be sorted by _symbol first, then date_col)
     out = out.sort_values(["_symbol", date_col], kind="mergesort").reset_index(drop=True)
 
     events_sorted = events_df.copy()
-    events_sorted = events_sorted.dropna(subset=["_symbol", "_event_date"])
     events_sorted = events_sorted.sort_values(["_symbol", "_event_date"], kind="mergesort").reset_index(drop=True)
 
     # Prepare event dataframes for merging
     events_before = events_sorted[["_symbol", "_event_date", "_event_type"]].copy()
     events_before.columns = ["_symbol", "event_before", "type_before"]
-    # Ensure proper data types for sorting
-    events_before["_symbol"] = events_before["_symbol"].astype(str)
-    events_before["event_before"] = pd.to_datetime(events_before["event_before"])
-    # Convert to timezone-naive if timezone-aware to avoid comparison issues
-    if events_before["event_before"].dt.tz is not None:
-        events_before["event_before"] = events_before["event_before"].dt.tz_localize(None)
     events_before = events_before.sort_values(["_symbol", "event_before"], kind="mergesort").reset_index(drop=True)
 
     events_after = events_sorted[["_symbol", "_event_date", "_event_type"]].copy()
     events_after.columns = ["_symbol", "event_after", "type_after"]
-    # Ensure proper data types for sorting
-    events_after["_symbol"] = events_after["_symbol"].astype(str)
-    events_after["event_after"] = pd.to_datetime(events_after["event_after"])
-    # Convert to timezone-naive if timezone-aware to avoid comparison issues
-    if events_after["event_after"].dt.tz is not None:
-        events_after["event_after"] = events_after["event_after"].dt.tz_localize(None)
     events_after = events_after.sort_values(["_symbol", "event_after"], kind="mergesort").reset_index(drop=True)
 
-    # Ensure out DataFrame has proper data types and is properly sorted
-    out["_symbol"] = out["_symbol"].astype(str)
-    out[date_col] = pd.to_datetime(out[date_col])
-    # Convert to timezone-naive if timezone-aware to avoid comparison issues
-    if out[date_col].dt.tz is not None:
-        out[date_col] = out[date_col].dt.tz_localize(None)
-    # Remove duplicates that might interfere with merge_asof
-    out = out.drop_duplicates(subset=["_symbol", date_col], keep="first")
-    # Sort and validate manually
-    out = out.sort_values(["_symbol", date_col], kind="mergesort").reset_index(drop=True)
-    
-    # Manual validation of sorting for merge_asof
-    if not out.empty:
-        # Check if the DataFrame is properly sorted for merge_asof
-        symbols_sorted = out.groupby("_symbol").apply(
-            lambda x: x[date_col].is_monotonic_increasing
-        ).all()
-        if not symbols_sorted:
-            print("[WARN] Manual resort needed due to sorting issues")
-            out = out.sort_values(["_symbol", date_col], kind="mergesort", ascending=[True, True]).reset_index(drop=True)
-
-    # Create a clean copy for the second merge_asof to ensure no interference
-    out_clean = out[["_symbol", date_col]].copy()
-
-    # Alternative approach: Use regular merge instead of merge_asof if sorting fails
-    try:
-        # Find nearest event BEFORE the date
-        prev_events = pd.merge_asof(
-            out,
-            events_before,
-            by="_symbol",
-            left_on=date_col,
-            right_on="event_before",
-            direction="backward",
-            allow_exact_matches=True,
-        )
-    except ValueError as e:
-        if "left keys must be sorted" in str(e):
-            print(f"[WARN] merge_asof failed with sorting error, attempting fallback approach")
-            # Fallback: create a simple cross join and filter manually
-            out_temp = out.copy()
-            out_temp['_merge_key'] = 1
-            events_before_temp = events_before.copy()
-            events_before_temp['_merge_key'] = 1
-            
-            cross_merged = pd.merge(out_temp, events_before_temp, on=['_symbol', '_merge_key'])
-            cross_merged = cross_merged[cross_merged['event_before'] <= cross_merged[date_col]]
-            
-            # Get the nearest before event for each trade
-            cross_merged['time_diff'] = (cross_merged[date_col] - cross_merged['event_before']).dt.days
-            prev_events = cross_merged.loc[cross_merged.groupby(['_symbol', date_col])['time_diff'].idxmin()]
-            prev_events = prev_events.drop(['_merge_key', 'time_diff'], axis=1)
-        else:
-            raise e
+    # Find nearest event BEFORE the date
+    prev_events = pd.merge_asof(
+        out,
+        events_before,
+        by="_symbol",
+        left_on=date_col,
+        right_on="event_before",
+        direction="backward",
+        allow_exact_matches=True,
+    )
 
     # Find nearest event AFTER the date
-    try:
-        next_events = pd.merge_asof(
-            out_clean,
-            events_after,
-            by="_symbol",
-            left_on=date_col,
-            right_on="event_after",
-            direction="forward",
-            allow_exact_matches=True,
-        )
-    except ValueError as e:
-        if "left keys must be sorted" in str(e):
-            print(f"[WARN] merge_asof failed for after events, attempting fallback approach")
-            # Fallback: create a simple cross join and filter manually
-            out_clean_temp = out_clean.copy()
-            out_clean_temp['_merge_key'] = 1
-            events_after_temp = events_after.copy()
-            events_after_temp['_merge_key'] = 1
-            
-            cross_merged = pd.merge(out_clean_temp, events_after_temp, on=['_symbol', '_merge_key'])
-            cross_merged = cross_merged[cross_merged['event_after'] >= cross_merged[date_col]]
-            
-            # Get the nearest after event for each trade
-            cross_merged['time_diff'] = (cross_merged['event_after'] - cross_merged[date_col]).dt.days
-            next_events = cross_merged.loc[cross_merged.groupby(['_symbol', date_col])['time_diff'].idxmin()]
-            next_events = next_events.drop(['_merge_key', 'time_diff'], axis=1)
-        else:
-            raise e
+    next_events = pd.merge_asof(
+        out,
+        events_after,
+        by="_symbol",
+        left_on=date_col,
+        right_on="event_after",
+        direction="forward",
+        allow_exact_matches=True,
+    )
 
     # Calculate distances
     out["event_before"] = prev_events["event_before"]
