@@ -96,13 +96,33 @@ The main pipeline follows a naming convention where scripts are prefixed with le
    - Applies thresholds for win_predict column
    - Output: `output/winner_score/*/scores_winner_*.csv`
 
-7. **Train Tail Loss Classifier** (optional):
+7. **Train Tail Loss Classifier** (b02 - three-layer defense system):
    ```bash
-   python train_tail_with_gex.py
+   python b02train_tail_classifier_oof.py
    ```
-   - Labels tail losses as worst K% by dollar PnL (default 5%)
-   - Uses GradientBoosting with stratified CV
-   - Output: `output/tails_train/*/tail_model_*.pkl`
+   - Detects catastrophic bin-0 trades that 4-bin ranker misses
+   - Uses OOF predictions from 4-bin model (reuses fold structure)
+   - Features include base features + 4-bin probabilities + conflict score
+   - Outputs: model, calibrator, OOF predictions, metrics
+   - Output dir: `output/tail_train/v1_oof_*/`
+   - **See**: `doc/tail_classifier_guide.md` for full documentation
+
+   **Analyze combined policy** (day gate + ranker + tail veto):
+   ```bash
+   python analyze_tail_combined_policy.py
+   ```
+   - Evaluates multiple strategies and thresholds
+   - Reports contamination reduction and return improvement
+   - Output: `output/eval/combined_policy_results.csv`
+
+   **Production scoring** (streaming with rolling thresholds):
+   ```bash
+   python score_tail_classifier_production.py --input trades.csv --output scored.csv
+   ```
+   - Three-layer system: day gate + 4-bin ranker + tail veto
+   - Streaming mode with 60-day rolling history
+   - No future leakage, production-ready
+   - **Quick start**: See `doc/tail_classifier_quickstart.md`
 
 8. **Evaluate models**:
    ```bash
@@ -238,13 +258,30 @@ Three feature groups (from `service/utils.py`):
 
 ### Model Types
 
-1. **Winner Classifier**: Binary classification for profitability
+1. **Winner Classifier (Binary)**: Binary classification for profitability
    - Label: `return_pct > 0` (or `return_mon > epsilon` with configurable threshold)
    - Models: LightGBM (primary), CatBoost, RandomForest
    - Training: OOF cross-validation with sample weighting by |return|
    - Threshold tuning: Target precision (e.g., 0.88, 0.92) or best F1
+   - Use case: Filter profitable vs unprofitable trades
 
-2. **Tail Loss Classifier**: Predict worst K% of trades by PnL
+2. **Winner Classifier (4-Bin)**: Multi-class classification by return quartile
+   - Script: `b01train_winner_classifier_bins4_oof.py`
+   - Label: `y_bin` in {0, 1, 2, 3} based on return quartiles
+     - 0 = worst quartile (bottom 25%)
+     - 1 = below median (25-50%)
+     - 2 = above median (50-75%)
+     - 3 = best quartile (top 25%)
+   - Binning modes:
+     - `per_day`: Quartiles computed within each trading day (normalizes for volatility)
+     - `global`: Quartiles computed across entire dataset
+   - Models: LightGBM (multiclass), CatBoost (MultiClass)
+   - Use case: Identify highest-return trades for selective portfolio construction
+   - Config: Set `WINNER_LABEL_MODE=bins4` in .env
+   - See `doc/bins4_strategy_analysis.md` for detailed analysis
+   - Evaluation: Use `eval_bins4_vs_binary.py` to compare strategies
+
+3. **Tail Loss Classifier**: Predict worst K% of trades by PnL
    - Label: Bottom K% quantile (default 5%) by dollar loss
    - Model: GradientBoosting with stratified CV
    - Use case: Filter out catastrophic losses before applying winner model
