@@ -153,11 +153,19 @@ def build_dataset(raw: pd.DataFrame, max_rows: int = 0, preload_closes: dict = N
     df["total_pnl"] = df["entry_credit"] - df["exit_intrinsic"]
     df["return_pct"] = np.where(df["capital"]>0, df["total_pnl"]/df["capital"]*100.0, np.nan)
 
+    # Compute normalized returns (same as service.preprocess.add_dte_and_normalized_returns)
+    # These must match what the training script uses!
+    df["return_per_day"] = df["return_pct"] / df["daysToExpiration"].replace(0, 1)
+    df["return_ann"] = df["return_pct"] * 365.0 / df["daysToExpiration"].replace(0, 1)
+    df["return_mon"] = df["return_pct"] * 30.0 / df["daysToExpiration"].replace(0, 1)
+
     # Bin within each trade date (cross-sectional)
     df["_trade_date"] = df["tradeTime"].dt.tz_localize(None).dt.normalize()
-    
+
     def assign_bins(g: pd.DataFrame) -> pd.DataFrame:
-        s = g["return_pct"]
+        # IMPORTANT: Use return_mon to match WINNER_TRAIN_TARGET
+        # If you change WINNER_TRAIN_TARGET to return_ann or return_pct, change this too!
+        s = g["return_mon"]
         # handle small groups safely
         if s.notna().sum() < 20:
             g["y_bin"] = np.nan
@@ -331,7 +339,10 @@ def lablel_merge_dataset():
 def get_tag(f, merged=False):
     if not merged:
         tag_block = f.split("_")[-1].replace(".csv", "")
-        last_tag = tag_block
+        if tag_block == "orig":
+            last_tag = "orig"
+        else:
+            last_tag = f.split("_")[-2] 
     else: # case of merged files
         tag_block = f.split("_")[-1].replace(".csv", "")
         if tag_block == "orig":
