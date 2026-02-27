@@ -54,6 +54,7 @@ New/optional:
 
 import json
 import os
+from datetime import datetime
 from typing import Dict, List
 
 import numpy as np
@@ -708,7 +709,11 @@ def main():
     #input_csv3 = "output/labeled_trades_tr_A_B_merged.csv"
     #input_csv = "output/data_labeled/labeled_merged_with_gex_macro_origabcdef.csv"
     tag = input_csv.split("_")[-1].split(".")[0]
-    config.output_dir = config.output_dir +  f"{tag}"
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M")
+    output_base = os.path.basename(config.output_dir.rstrip("/"))
+    if not output_base.endswith(tag):
+        config.output_dir = config.output_dir + f"{tag}"
+    config.output_dir = f"{config.output_dir}_{run_ts}"
     ensure_dir(config.output_dir)
     config.model_name = f"winner_classifier_model_{tag}"
 

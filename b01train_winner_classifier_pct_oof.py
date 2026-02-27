@@ -54,6 +54,7 @@ New/optional:
 
 import json
 import os
+from datetime import datetime
 from typing import Dict, List
 
 import numpy as np
@@ -184,6 +185,14 @@ class WinnerClassifierConfig:
         # Validation
         if not self.input_csv or not self.output_dir:
             raise SystemExit("WINNER_INPUT (or OUTPUT_CSV) and WINNER_OUTPUT_DIR must be set in .env")
+        
+        # added for 4-bin version
+        # Labeling (4-bin)
+        self.label_mode = getenv("WINNER_LABEL_MODE", "bins4").strip().lower()  # "binary" or "bins4"
+        self.bins_mode = getenv("WINNER_BINS_MODE", "per_day").strip().lower()  # "per_day" or "global"
+        self.bins_q = self._parse_list_env(getenv("WINNER_BINS_Q", "[0.25,0.5,0.75]"))  # 3 cut points
+        self.bins_min_group = int(getenv("WINNER_BINS_MIN_GROUP", "20"))
+        self.time_col = getenv("WINNER_TIME_COL", "captureTime").strip()
 
 
 # ---------- Helpers ----------
@@ -257,7 +266,28 @@ class DataPreprocessor:
         # df = df.sample(frac=1, random_state=self.config.random_state).reset_index(drop=True)
 
         # Build binary label
-        y = build_label(df, self.config.train_target)
+        # deprecated
+        #y = build_label(df, self.config.train_target)
+
+        if self.config.label_mode == "bins4":
+            y = build_label_bins4(
+                df,
+                target_col=self.config.train_target,
+                time_col=self.config.time_col,
+                bins_mode=self.config.bins_mode,
+                q=self.config.bins_q,
+                min_group=self.config.bins_min_group,
+            )
+        else:
+            y = build_label_binary(df, self.config.train_target, epsilon=0.0)
+        # Drop rows where y is NA
+        mask = y.notna()
+        df = df.loc[mask].reset_index(drop=True)
+        y = y.loc[mask].astype(int).to_numpy()
+        
+        # If weights exist, filter them too (must align!)
+        # weights computed later below — easiest: compute weights AFTER filtering df
+
 
         # Select features
         features = select_features(df, self.config.features, self.config.id_cols)
@@ -287,6 +317,9 @@ class ModelFactory:
 
         if config.model_type == "lgbm":
             from lightgbm import LGBMClassifier
+            objective = "multiclass" if config.label_mode == "bins4" else "binary"
+            num_class = 4 if config.label_mode == "bins4" else None
+            metrics = "multi_logloss" if config.label_mode == "bins4" else "auc"
             return LGBMClassifier(
                 n_estimators=int(os.getenv("LGBM_N_ESTIMATORS", "2000")),
                 learning_rate=float(os.getenv("LGBM_LR", "0.05")),
@@ -297,20 +330,28 @@ class ModelFactory:
                 subsample_freq=int(os.getenv("LGBM_BAGGING_FREQ", "0")),
                 colsample_bytree=float(os.getenv("LGBM_FEATURE_FRACTION", "0.8")),
                 reg_lambda=float(os.getenv("LGBM_L2", "5.0")),
-                objective="binary",
+                objective=objective,
+                num_class=num_class,
+                eval_metric=metrics,
                 random_state=seed,
                 n_jobs=-1,
             )
         elif config.model_type == "catboost":
             from catboost import CatBoostClassifier
             # TODD: environment variables still use the old version
+            if config.label_mode == "bins4":
+                loss_function = "MultiClass"
+                eval_metric = "MultiClass"
+            else:
+                loss_function = "Logloss"
+                eval_metric = os.getenv("CAT_EVAL_METRIC", "AUC")
             return CatBoostClassifier(
                 iterations=int(os.getenv("CAT_ITERS", "4000")),
                 learning_rate=float(os.getenv("CAT_LR", "0.05")),
                 depth=int(os.getenv("CAT_DEPTH", "6")),
                 l2_leaf_reg=float(os.getenv("CAT_L2", "6.0")),
-                loss_function="Logloss",
-                eval_metric=os.getenv("CAT_EVAL_METRIC", "AUC"),
+                loss_function=loss_function,
+                eval_metric=eval_metric,
                 random_seed=seed,
                 verbose=False,
                 task_type=os.getenv("CAT_TASK_TYPE", "CPU"),
@@ -336,6 +377,70 @@ def build_label(df: pd.DataFrame, target_col: str, epsilon:float = 0.00) -> pd.S
     if target_col not in df.columns:
         raise ValueError(f"Column `{target_col}` not found.")
     return (pd.to_numeric(df[target_col], errors="coerce") > epsilon).astype(int)
+
+def build_label_binary(df: pd.DataFrame, target_col: str, epsilon: float = 0.0) -> pd.Series:
+    if target_col not in df.columns:
+        raise ValueError(f"Column `{target_col}` not found.")
+    return (pd.to_numeric(df[target_col], errors="coerce") > epsilon).astype(int)
+
+def build_label_bins4(
+    df: pd.DataFrame,
+    target_col: str,
+    time_col: str,
+    bins_mode: str = "per_day",
+    q: List[float] = [0.25, 0.5, 0.75],
+    min_group: int = 20,
+) -> pd.Series:
+    """
+    Returns y in {0,1,2,3} (0=worst, 3=best).
+
+    bins_mode="per_day": compute quantile cut points within each day (normalized date)
+    bins_mode="global": compute quantiles across entire df
+    """
+    if target_col not in df.columns:
+        raise ValueError(f"Column `{target_col}` not found.")
+    if time_col not in df.columns:
+        raise ValueError(f"Time column `{time_col}` not found.")
+
+    s = pd.to_numeric(df[target_col], errors="coerce")
+
+    if bins_mode == "global":
+        cuts = s.quantile(q).values
+
+        def to_bin(x):
+            if not np.isfinite(x):
+                return np.nan
+            if x <= cuts[0]: return 0
+            if x <= cuts[1]: return 1
+            if x <= cuts[2]: return 2
+            return 3
+
+        return s.apply(to_bin).astype("Int64")
+
+    # per_day
+    t = pd.to_datetime(df[time_col], errors="coerce")
+    day = t.dt.tz_localize(None).dt.normalize()
+
+    y = pd.Series(np.nan, index=df.index, dtype="float")
+
+    for d, idx in day.groupby(day).groups.items():
+        idx = list(idx)
+        ss = s.loc[idx]
+        if ss.notna().sum() < min_group:
+            continue
+        cuts = ss.quantile(q).values
+
+        def to_bin(x):
+            if not np.isfinite(x):
+                return np.nan
+            if x <= cuts[0]: return 0
+            if x <= cuts[1]: return 1
+            if x <= cuts[2]: return 2
+            return 3
+
+        y.loc[idx] = ss.apply(to_bin)
+
+    return y.astype("Int64")
 
 
 def pick_threshold_by_target(y_true: np.ndarray, proba: np.ndarray,
@@ -476,11 +581,12 @@ class CrossValidator:
                     verbose=False
                 )
             else:  # lgbm
+                metrics = "multi_logloss" if self.config.label_mode == "bins4" else "auc"
                 clf.fit(
                     Xtr_fit, ytr_fit,
                     sample_weight=wgtr[:cut] if wgtr is not None else None,
                     eval_set=[(Xeval, yeval)],
-                    eval_metric="aucpr",
+                    eval_metric=metrics,
                     callbacks=[__import__("lightgbm").early_stopping(self.config.early_stopping_rounds, verbose=False)]
                 )
         else:
@@ -493,7 +599,8 @@ class CrossValidator:
         """Run out-of-fold cross-validation."""
         splitter, split_iter, split_kind = self.get_cv_splitter(df, y, has_time)
 
-        proba_oof = np.full(len(df), np.nan, dtype=float)
+        n_classes = 4 if self.config.label_mode == "bins4" else 2
+        proba_oof = np.full((len(df), n_classes), np.nan, dtype=float) if n_classes > 2 else np.full(len(df), np.nan, dtype=float)
         fold_idx = np.full(len(df), -1, dtype=int)
 
         for k, (tr, va) in enumerate(split_iter):
@@ -521,8 +628,11 @@ class CrossValidator:
             clf = self.fit_fold_model(clf, Xtr, ytr, wgtr, Xva, y[va], k)
 
             # Predict
-            pva = clf.predict_proba(Xva)[:, 1]
-            proba_oof[va] = pva
+            pva = clf.predict_proba(Xva)
+            if n_classes > 2:
+                proba_oof[va, :] = pva
+            else:
+                proba_oof[va] = pva[:, 1]
             fold_idx[va] = k
 
         # Fill any remaining NaNs
@@ -534,10 +644,38 @@ class CrossValidator:
         return proba_oof, fold_idx, split_kind
 
 
+def evaluate_bins4(df: pd.DataFrame, y: np.ndarray, proba: np.ndarray, target_col: str) -> Dict:
+    from sklearn.metrics import accuracy_score
+    y_pred = np.argmax(proba, axis=1)
+    acc = float(accuracy_score(y, y_pred))
+    f1m = float(f1_score(y, y_pred, average="macro", zero_division=0))
+    cm = confusion_matrix(y, y_pred).tolist()
+
+    # Selection sanity: top vs bottom decile by p(bin=3)
+    score = proba[:, 3]
+    sret = pd.to_numeric(df[target_col], errors="coerce").fillna(0.0).to_numpy()
+
+    q90 = np.quantile(score, 0.90)
+    q10 = np.quantile(score, 0.10)
+    top_mean = float(sret[score >= q90].mean()) if np.any(score >= q90) else float("nan")
+    bot_mean = float(sret[score <= q10].mean()) if np.any(score <= q10) else float("nan")
+    spread = float(top_mean - bot_mean) if np.isfinite(top_mean) and np.isfinite(bot_mean) else float("nan")
+
+    return {
+        "task": "bins4_multiclass",
+        "accuracy": acc,
+        "f1_macro": f1m,
+        "confusion_matrix": cm,
+        "top10pct_mean_target": top_mean,
+        "bottom10pct_mean_target": bot_mean,
+        "top_minus_bottom_spread": spread,
+    }
+
 # ---------- Main Function ----------
 
 def main():
     """Main training function with refactored structure."""
+    from sklearn.metrics import accuracy_score, classification_report
     # Initialize components
     config = WinnerClassifierConfig()
 
@@ -561,7 +699,11 @@ def main():
     #input_csv3 = "output/labeled_trades_tr_A_B_merged.csv"
     #input_csv = "output/data_labeled/labeled_merged_with_gex_macro_origabcdef.csv"
     tag = input_csv.split("_")[-1].split(".")[0]
-    config.output_dir = config.output_dir +  f"{tag}"
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M")
+    output_base = os.path.basename(config.output_dir.rstrip("/"))
+    if not output_base.endswith(tag):
+        config.output_dir = config.output_dir + f"{tag}"
+    config.output_dir = f"{config.output_dir}_{run_ts}"
     ensure_dir(config.output_dir)
     config.model_name = f"winner_classifier_model_{tag}"
 
@@ -587,12 +729,24 @@ def main():
     proba_oof, fold_idx, split_kind = cv_handler.run_oof_cv(df, y, features, weights, has_time)
 
     # Calculate OOF metrics
-    roc_auc = roc_auc_score(y, proba_oof) if len(np.unique(y)) > 1 else float("nan")
-    pr_auc = average_precision_score(y, proba_oof)
+    if config.label_mode == "bins4":
+        yhat_oof = np.argmax(proba_oof, axis=1)
+        acc = accuracy_score(y, yhat_oof)
+        f1m = f1_score(y, yhat_oof, average="macro", zero_division=0)
+        cm = confusion_matrix(y, yhat_oof)
+        print(f"OOF ACC={acc:.4f}; F1_macro={f1m:.4f}")
+        roc_auc = float("nan")
+        pr_auc = float("nan")
+    else:
+        roc_auc = roc_auc_score(y, proba_oof) if len(np.unique(y)) > 1 else float("nan")
+        pr_auc = average_precision_score(y, proba_oof)
 
     cv_time = pd.Timestamp.now() - start_time
     print(f"Completed OOF scoring ({len(df)} rows, {config.oof_folds} folds, {split_kind}) in {cv_time}")
-    print(f"OOF AUC-ROC={roc_auc:.4f}; AUC-PR={pr_auc:.4f}")
+    if config.label_mode == "bins4":
+        print(f"OOF ACC={acc:.4f}; F1_macro={f1m:.4f}")
+    else:
+        print(f"OOF AUC-ROC={roc_auc:.4f}; AUC-PR={pr_auc:.4f}")
 
     # Generate evaluation outputs
     _save_evaluation_results(config, df, y, proba_oof, fold_idx, split_kind)
@@ -601,9 +755,34 @@ def main():
     final_model, final_train_time = _train_final_model(config, preprocessor, df, y, features)
 
     # Save final results
-    _save_final_results(config, final_model, features, df, proba_oof, y, roc_auc, pr_auc, split_kind)
+    if config.label_mode != "bins4":
+        _save_final_results(config, final_model, features, df, proba_oof, y, roc_auc, pr_auc, split_kind)
+    else:
+        # Save final model only
+        model_path = os.path.join(config.output_dir, config.model_name)
+        joblib.dump(final_model, model_path)
+        metrics = evaluate_bins4(df, y, proba_oof, config.train_target)
+        metrics.update({
+            "n_rows": int(len(df)),
+            "n_features": int(len(features)),
+            "features": features,
+            "cv": split_kind,
+            "bins_mode": config.bins_mode,
+            "bins_q": config.bins_q,
+            "bins_min_group": config.bins_min_group,
+            "train_target": config.train_target,
+        })
+        # Save metrics
+        metrics_path = os.path.join(config.output_dir, "winner_classifier_metrics.json")
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2)
 
-    print(f"✅ Winner classifier trained with OOF. ROC AUC(O): {roc_auc:.4f}, PR AUC(O): {pr_auc:.4f}")
+
+    if config.label_mode == "bins4":
+        print(f"Final model trained on ALL data in {final_train_time}")
+        print(f"CV: {split_kind}, folds={config.oof_folds}")
+        print(f"Outputs saved in: {config.output_dir}")
+        return
     print(f"CV: {split_kind}, folds={config.oof_folds}")
     print(f"Outputs saved in: {config.output_dir}")
 
@@ -611,6 +790,20 @@ def main():
 def _save_evaluation_results(config: WinnerClassifierConfig, df: pd.DataFrame, y: np.ndarray,
                            proba_oof: np.ndarray, fold_idx: np.ndarray, split_kind: str):
     """Save precision-recall curves, threshold tables, and OOF predictions."""
+
+    if config.label_mode == "bins4":
+        oof_out = pd.DataFrame({
+            "row_idx": np.arange(len(df)),
+            "y_true": y,
+            "y_pred": np.argmax(proba_oof, axis=1),
+            "p_bin0": proba_oof[:,0],
+            "p_bin1": proba_oof[:,1],
+            "p_bin2": proba_oof[:,2],
+            "p_bin3": proba_oof[:,3],
+            "fold": fold_idx
+        })
+        oof_out.to_csv(os.path.join(config.output_dir, "winner_scores_oof.csv"), index=False)
+        return
     precision, recall, thresholds = precision_recall_curve(y, proba_oof)
     coverage = [(proba_oof >= t).mean() for t in thresholds]
 

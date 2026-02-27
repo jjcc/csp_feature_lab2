@@ -12,6 +12,7 @@ Usage:
 
 import os
 import json
+from datetime import datetime
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -40,7 +41,9 @@ def main():
     # Load OOF predictions from 4-bin model
     scores_path = getenv("WINNER_OUTPUT_DIR", "output/winner_train/v9_oof_origorig") + "/winner_scores_oof.csv"
     trades_path = getenv("COMMON_OUTPUT_DIR") + "/" + getenv("COMMON_LABELED") + "/" + getenv("COMMON_OUTPUT_CSV")
-    output_dir = getenv("TAIL_OUTPUT_DIR", "output/tail_train/v1_oof_origorig")
+    output_dir = getenv("TAIL_OUTPUT_DIR", "output/tail_train/v1_oof_orig")
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M")
+    output_dir = f"{output_dir}_{run_ts}"
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
